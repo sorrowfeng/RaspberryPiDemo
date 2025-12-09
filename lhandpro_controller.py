@@ -1,0 +1,409 @@
+"""
+LHandPro 控制器封装类
+提供连接、断开、运动控制等功能
+"""
+
+import time
+import threading
+from typing import Optional, List, Tuple
+from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT
+from ethercat_master import EthercatMaster
+
+
+class LHandProController:
+    """LHandPro 控制器封装类"""
+
+    def __init__(self):
+        """初始化控制器"""
+        self.lhp: Optional[PyLHandProLib] = None
+        self.ec_master: Optional[EthercatMaster] = None
+        self.stop_flag: Optional[threading.Event] = None
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.is_connected = False
+        self.dof_total = 0
+        self.dof_active = 0
+
+    def _ec_send_callback(self, data: bytes) -> bool:
+        """EtherCAT 发送回调函数"""
+        if self.ec_master:
+            return self.ec_master.setOutputs(data, len(data))
+        print("EC master not initialized!")
+        return False
+
+    def _monitor_thread_func(self):
+        """监控线程函数：刷新解析 TPDO 数据"""
+        time.sleep(1.0)  # 等待初始化
+        while not self.stop_flag.is_set():
+            if self.ec_master:
+                input_size = self.ec_master.getInputSize()
+                inputs = self.ec_master.getInputs(input_size)
+                if inputs is not None and self.lhp:
+                    self.lhp.set_tpdo_data_decode(inputs)
+            time.sleep(0.01)  # 10ms
+
+    def connect(
+        self,
+        channel_index: Optional[int] = None,
+        auto_select: bool = True,
+        enable_motors: bool = True,
+        home_motors: bool = True,
+        home_wait_time: float = 5.0
+    ) -> bool:
+        """
+        连接并初始化 LHandPro 设备
+
+        Args:
+            channel_index: 网口索引，如果为None则自动选择或让用户选择
+            auto_select: 是否自动选择网口（当有多个网口时）
+            enable_motors: 是否自动使能电机
+            home_motors: 是否自动回零
+            home_wait_time: 回零等待时间（秒）
+
+        Returns:
+            bool: 连接是否成功
+        """
+        try:
+            # 创建 PyLHandProLib 实例
+            self.lhp = PyLHandProLib()
+        except Exception as e:
+            print(f"创建 LHandPro 失败: {e}")
+            return False
+
+        # 创建 EtherCAT 主站
+        self.ec_master = EthercatMaster()
+
+        print("正在使用EtherCAT通讯(100M):\n")
+
+        # 扫描网口
+        names = self.ec_master.scanNetworkInterfaces()
+        print(f"找到网口数量：{len(names)}\n")
+
+        if len(names) == 0:
+            print("未找到网口")
+            self.lhp.close()
+            self.lhp = None
+            return False
+
+        # 选择网口
+        if channel_index is None:
+            if len(names) == 1:
+                # 只有一个网口时自动选择
+                print(f"✅ 检测到单个网口，自动选择: {names[0]}")
+                channel_index = 0
+            elif auto_select:
+                # 自动选择第一个网口
+                print(f"✅ 自动选择网口: {names[0]}")
+                channel_index = 0
+            else:
+                # 多个网口时让用户选择
+                print(f"请选择对应网口 [0 - {len(names) - 1}]")
+                print("可用网口列表:")
+                for i, name in enumerate(names):
+                    print(f"  [{i}] {name}")
+
+                while True:
+                    try:
+                        user_input = input(">>> ")
+                        if user_input.strip() == "":
+                            print(f"使用默认选择: 0 ({names[0]})")
+                            channel_index = 0
+                            break
+
+                        channel_index = int(user_input)
+                        if 0 <= channel_index < len(names):
+                            print(f"已选择: [{channel_index}] {names[channel_index]}")
+                            break
+                        else:
+                            print(f"请输入 [0 - {len(names) - 1}]")
+                    except ValueError:
+                        print("请输入数字")
+        else:
+            if not (0 <= channel_index < len(names)):
+                print(f"无效的网口索引: {channel_index}")
+                self.lhp.close()
+                self.lhp = None
+                return False
+            print(f"使用指定网口: [{channel_index}] {names[channel_index]}")
+
+        # 初始化 EtherCAT
+        if not self.ec_master.init(channel_index, names):
+            print("初始化失败")
+            self.lhp.close()
+            self.lhp = None
+            return False
+
+        print("连接成功")
+
+        if not self.ec_master.start():
+            print("启动设备失败")
+            self.lhp.close()
+            self.lhp = None
+            return False
+
+        # 启动后台 IO
+        self.ec_master.run()
+
+        # 设置回调
+        self.lhp.set_send_rpdo_callback(self._ec_send_callback)
+
+        # 启动监控线程
+        self.stop_flag = threading.Event()
+        self.monitor_thread = threading.Thread(target=self._monitor_thread_func, daemon=True)
+        self.monitor_thread.start()
+
+        # 初始化 LHandProLib
+        try:
+            self.lhp.initial(LCN_ECAT)
+        except LHandProLibError as e:
+            print(f"LHandProLib 初始化失败: {e}")
+            self.disconnect()
+            return False
+
+        # 获取自由度
+        self.dof_total, self.dof_active = self.lhp.get_dof()
+        print(f"自由度: 总共 {self.dof_total}, 主动 {self.dof_active}")
+
+        # 使能电机
+        if enable_motors:
+            self.lhp.set_control_mode(0, LCM_POSITION)
+            self.lhp.set_enable(0, True)
+            print("等待使能完成")
+            time.sleep(1.0)
+
+        # 回零
+        if home_motors:
+            print("正在回零")
+            self.lhp.home_motors(0)
+            time.sleep(home_wait_time)
+
+        self.is_connected = True
+        return True
+
+    def disconnect(self):
+        """断开连接并清理资源"""
+        if not self.is_connected:
+            return
+
+        print("正在断开连接...")
+
+        # 停止监控线程
+        if self.stop_flag:
+            self.stop_flag.set()
+            if self.monitor_thread and self.monitor_thread.is_alive():
+                self.monitor_thread.join(timeout=2.0)
+
+        # 关闭库
+        if self.lhp:
+            self.lhp.close()
+            self.lhp = None
+
+        # 停止 EtherCAT 主站
+        if self.ec_master:
+            self.ec_master.stop()
+            time.sleep(0.1)
+            self.ec_master = None
+
+        self.is_connected = False
+        print("已断开连接")
+
+    def move_to_positions(
+        self,
+        positions: List[int],
+        velocity: int = 20000,
+        max_current: int = 800,
+        wait_time: float = 1.0
+    ) -> bool:
+        """
+        移动到指定位置
+
+        Args:
+            positions: 位置列表，长度为 dof_active
+            velocity: 位置速度
+            max_current: 最大电流
+            wait_time: 运动后等待时间（秒）
+
+        Returns:
+            bool: 是否成功发送运动指令
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return False
+
+        if len(positions) != self.dof_active:
+            print(f"位置数量不匹配: 期望 {self.dof_active}, 得到 {len(positions)}")
+            return False
+
+        try:
+            for j in range(self.dof_active):
+                motor_id = j + 1
+                self.lhp.set_target_position(motor_id, positions[j])
+                self.lhp.set_position_velocity(motor_id, velocity)
+                self.lhp.set_max_current(motor_id, max_current)
+
+            self.lhp.move_motors(0)
+            print(f"✅ 运动指令发送成功: positions={positions}")
+            time.sleep(wait_time)
+            return True
+        except Exception as e:
+            print(f"运动控制失败: {e}")
+            return False
+
+    def move_sequence(
+        self,
+        positions_list: List[List[int]],
+        velocity: int = 20000,
+        max_current: int = 800,
+        wait_time: float = 1.0
+    ) -> bool:
+        """
+        执行一系列位置运动
+
+        Args:
+            positions_list: 位置序列列表，每个元素是一个位置列表
+            velocity: 位置速度
+            max_current: 最大电流
+            wait_time: 每个运动后等待时间（秒）
+
+        Returns:
+            bool: 是否成功执行所有运动
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return False
+
+        try:
+            for i, pos_list in enumerate(positions_list):
+                success = self.move_to_positions(pos_list, velocity, max_current, wait_time)
+                if not success:
+                    print(f"第 {i} 个位置运动失败")
+                    return False
+                print(f"line: {i} positions: {pos_list} ✅")
+            return True
+        except Exception as e:
+            print(f"运动序列执行失败: {e}")
+            return False
+
+    def enable_motors(self, enable: bool = True):
+        """
+        使能/禁用电机
+
+        Args:
+            enable: True为使能，False为禁用
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return
+
+        try:
+            self.lhp.set_control_mode(0, LCM_POSITION)
+            self.lhp.set_enable(0, enable)
+            print(f"电机{'使能' if enable else '禁用'}成功")
+        except Exception as e:
+            print(f"设置电机使能状态失败: {e}")
+
+    def home(self, wait_time: float = 5.0):
+        """
+        回零操作
+
+        Args:
+            wait_time: 回零等待时间（秒）
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return
+
+        try:
+            print("正在回零")
+            self.lhp.home_motors(0)
+            time.sleep(wait_time)
+            print("回零完成")
+        except Exception as e:
+            print(f"回零失败: {e}")
+
+    def stop_motors(self):
+        """
+        停止所有电机运动
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return
+
+        try:
+            self.lhp.stop_motors(0)
+            print("✅ 所有电机已停止")
+        except Exception as e:
+            print(f"停止电机失败: {e}")
+
+    def move_to_zero(
+        self,
+        velocity: int = 20000,
+        max_current: int = 800,
+        wait_time: float = 1.0
+    ) -> bool:
+        """
+        移动到零位置（所有位置为0）
+
+        Args:
+            velocity: 位置速度
+            max_current: 最大电流
+            wait_time: 运动后等待时间（秒）
+
+        Returns:
+            bool: 是否成功发送运动指令
+        """
+        zero_positions = [0] * self.dof_active
+        return self.move_to_positions(zero_positions, velocity, max_current, wait_time)
+
+    def get_dof(self) -> Tuple[int, int]:
+        """
+        获取自由度信息
+
+        Returns:
+            Tuple[int, int]: (总自由度, 主动自由度)
+        """
+        return self.dof_total, self.dof_active
+    
+    def clear_alarm(self) -> None:
+        """
+        清除所有电机报警
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return
+        
+        try:
+            self.lhp.set_clear_alarm(0)
+            print("✅ 已清除所有电机报警")
+        except Exception as e:
+            print(f"清除报警失败: {e}")
+    
+    def get_alarm(self) -> bool:
+        """
+        获取所有电机的报警状态
+        
+        Returns:
+            bool: 如果有任何一个电机报警，返回True；否则返回False
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return False
+        
+        try:
+            for motor_id in range(1, self.dof_active + 1):
+                alarm = self.lhp.get_now_alarm(motor_id)
+                if alarm == 1:
+                    print(f"⚠️ 电机 {motor_id} 报警")
+                    return True
+            return False
+        except Exception as e:
+            print(f"获取报警状态失败: {e}")
+            return False
+
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口，自动断开连接"""
+        self.disconnect()
+        return False
