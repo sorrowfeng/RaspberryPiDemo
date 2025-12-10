@@ -9,8 +9,6 @@ import threading
 import keyboard
 from lhandpro_controller import LHandProController
 from gpio_controller import GPIOController, GPIO_PINS
-from udp_receiver import UDPReceiver
-from udp_receiver import SimpleGloveData
 try:
     import RPi.GPIO as GPIO
 except ImportError:
@@ -36,11 +34,6 @@ class MotionController:
             [0, 0, 10000, 10000, 10000, 10000],
             [0, 0, 0, 0, 0, 0],
         ]
-        
-        # 手套监听控制
-        self.glove_listener = None
-        self.glove_listening = False
-        self.glove_lock = threading.Lock()
 
     def setup_gpio(self):
         """设置GPIO引脚和回调函数"""
@@ -66,12 +59,6 @@ class MotionController:
         self.gpio.setup_input(
             GPIO_PINS.DISCONNECT,
             callback=self.on_disconnect_device,
-            pull_up_down=GPIO.PUD_DOWN
-        )
-        # 添加手套监听启动的GPIO引脚
-        self.gpio.setup_input(
-            GPIO_PINS.START_GLOVE_LISTEN,
-            callback=self.on_start_glove_listen,
             pull_up_down=GPIO.PUD_DOWN
         )
         
@@ -116,16 +103,16 @@ class MotionController:
         print("🔴 GPIO触发: 停止运动并回到0位置")
         
         with self.motion_lock:
-            if self.motion_running:
-                self.stop_motion_flag.set()
-                self.motion_running = False
+            if not self.motion_running:
+                print("⚠️ 当前没有运动在执行")
+                return
             
+            self.stop_motion_flag.set()
+            self.motion_running = False
+        
         # 停止电机
         self.controller.stop_motors()
         time.sleep(0.1)
-        
-        # 停止手套监听
-        self.stop_glove_listening()
         
         # 移动到0位置
         print("正在移动到0位置...")
@@ -237,86 +224,6 @@ class MotionController:
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
             self.gpio.set_rgb_color(0, 255, 0)
             print("🏁 循环运动结束")
-    
-    def on_start_glove_listen(self):
-        """开始手套监听回调"""
-        print("🟢 GPIO触发: 开始手套监听")
-        if not self.controller.is_connected:
-            print("⚠️ 设备未连接，无法开始手套监听")
-            return
-        
-        with self.glove_lock:
-            if self.glove_listening:
-                print("⚠️ 手套监听已在运行中")
-                return
-            
-            self.glove_listening = True
-        
-        # 启动手套监听
-        self.start_glove_listening()
-    
-    def start_glove_listening(self):
-        """开始监听手套数据"""
-        print("🎧 开始监听手套数据")
-        
-        # 状态指示：手套监听中 -> 青色
-        self.gpio.set_rgb_color(0, 255, 255)
-        
-        # 创建并启动UDP接收器
-        try:
-            self.glove_listener = UDPReceiver(self.glove_data_callback)
-            self.glove_listener.start()
-            print("✅ 手套UDP接收器已启动")
-        except Exception as e:
-            print(f"❌ 启动手套UDP接收器失败: {e}")
-            with self.glove_lock:
-                self.glove_listening = False
-    
-    def stop_glove_listening(self):
-        """停止监听手套数据"""
-        with self.glove_lock:
-            if not self.glove_listening:
-                return
-            
-            self.glove_listening = False
-        
-        print("🛑 停止监听手套数据")
-        
-        # 停止UDP接收器
-        if self.glove_listener:
-            self.glove_listener.stop()
-            self.glove_listener = None
-            print("✅ 手套UDP接收器已停止")
-    
-    def glove_data_callback(self, simple_glove_data_list):
-        """手套数据回调函数
-        
-        Args:
-            simple_glove_data_list: SimpleGloveData对象列表
-        """
-        if not simple_glove_data_list:
-            return
-        
-        for simple_glove_data in simple_glove_data_list:
-            # 打印设备信息和校准状态
-            print(f"手套设备: {simple_glove_data.device_name}")
-            print(f"右手校准状态: {'已校准' if simple_glove_data.right_calibrated else '未校准'}")
-            print(f"左手校准状态: {'已校准' if simple_glove_data.left_calibrated else '未校准'}")
-            
-            # 打印角度数据
-            if simple_glove_data.right_angles:
-                print(f"右手角度数据: {simple_glove_data.right_angles}")
-                # TODO: 同步手套运动部分，将角度数据转换为电机控制指令
-                # 这里需要将手套的角度数据转换为电机的位置值
-                # 例如：self.controller.move_to_positions(positions=converted_positions, ...)
-            
-            if simple_glove_data.left_angles:
-                print(f"左手角度数据: {simple_glove_data.left_angles}")
-                # TODO: 同步手套运动部分，将角度数据转换为电机控制指令
-                # 这里需要将手套的角度数据转换为电机的位置值
-                # 例如：self.controller.move_to_positions(positions=converted_positions, ...)
-            
-            print("-" * 50)
 
     def run(self):
         """主运行函数"""
@@ -353,7 +260,6 @@ class MotionController:
         print(f"  GPIO {GPIO_PINS.STOP_MOTION}: 停止运动并回到0位置")
         print(f"  GPIO {GPIO_PINS.CONNECT}: 连接设备")
         print(f"  GPIO {GPIO_PINS.DISCONNECT}: 断开设备")
-        print(f"  GPIO {GPIO_PINS.START_GLOVE_LISTEN}: 开始手套监听")
         print(f"  GPIO {GPIO_PINS.CYCLE_COMPLETE}: 循环完成信号输出")
         print(f"  GPIO {GPIO_PINS.STATUS_LED}: 状态LED输出")
         print("\n按 Esc 键退出程序...\n")
@@ -398,9 +304,6 @@ class MotionController:
             with self.motion_lock:
                 self.stop_motion_flag.set()
                 self.motion_running = False
-            
-            # 停止手套监听
-            self.stop_glove_listening()
             
             # 断开设备
             if self.controller.is_connected:

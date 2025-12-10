@@ -360,6 +360,7 @@ class GPIO_PINS:
     STOP_MOTION = 27      # 停止运动并回到0 (物理引脚13)
     CONNECT = 22          # 连接设备 (物理引脚15)
     DISCONNECT = 23       # 断开连接 (物理引脚16)
+    START_GLOVE_LISTEN = 26  # 开始手套监听 (物理引脚37)
     
     # 输出引脚定义（常规GPIO，无复用功能）
     READY_STATUS = 5      # 程序已准备好/待命状态 (物理引脚29)
