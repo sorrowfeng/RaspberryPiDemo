@@ -210,7 +210,7 @@ class LHandProController:
         self,
         positions: List[int],
         velocity: int = 20000,
-        max_current: int = 800,
+        max_current: int = 1000,
         wait_time: float = 1.0
     ) -> bool:
         """
@@ -242,7 +242,51 @@ class LHandProController:
 
             self.lhp.move_motors(0)
             print(f"✅ 运动指令发送成功: positions={positions}")
-            time.sleep(wait_time)
+            if wait_time > 0:
+                time.sleep(wait_time)
+            return True
+        except Exception as e:
+            print(f"运动控制失败: {e}")
+            return False
+
+    def move_to_angles(
+        self,
+        angles: List[float],
+        angular_velocity: float = 200.0,
+        max_current: int = 1000,
+        wait_time: float = 1.0
+    ) -> bool:
+        """
+        移动到指定角度
+
+        Args:
+            angles: 角度列表，长度为 dof_active
+            angular_velocity: 角速度
+            max_current: 最大电流
+            wait_time: 运动后等待时间（秒）
+
+        Returns:
+            bool: 是否成功发送运动指令
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return False
+
+        if len(angles) != self.dof_active:
+            print(f"角度数量不匹配: 期望 {self.dof_active}, 得到 {len(angles)}")
+            return False
+
+        try:
+            for j in range(self.dof_active):
+                motor_id = j + 1
+                self.lhp.set_target_angle(motor_id, angles[j])
+                self.lhp.set_angular_velocity(motor_id, angular_velocity)
+                self.lhp.set_max_current(motor_id, max_current)
+
+            self.lhp.move_motors(0)
+            print(f"✅ 运动指令发送成功: angles={angles}")
+            if wait_time > 0:
+                time.sleep(wait_time)
             return True
         except Exception as e:
             print(f"运动控制失败: {e}")

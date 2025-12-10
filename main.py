@@ -297,24 +297,42 @@ class MotionController:
         if not simple_glove_data_list:
             return
         
+        # 切换使用左右手，默认使用右手
+        use_right_hand = True  # True 表示使用右手，False 表示使用左手
+        
         for simple_glove_data in simple_glove_data_list:
             # 打印设备信息和校准状态
             print(f"手套设备: {simple_glove_data.device_name}")
-            print(f"右手校准状态: {'已校准' if simple_glove_data.right_calibrated else '未校准'}")
-            print(f"左手校准状态: {'已校准' if simple_glove_data.left_calibrated else '未校准'}")
+            # 如果设备名称不是以teleop_开头则略过
+            if not simple_glove_data.device_name.startswith("teleop_"):
+                print(f"设备 {simple_glove_data.device_name} 不符合，跳过")
+                continue
             
-            # 打印角度数据
-            if simple_glove_data.right_angles:
-                print(f"右手角度数据: {simple_glove_data.right_angles}")
-                # TODO: 同步手套运动部分，将角度数据转换为电机控制指令
-                # 这里需要将手套的角度数据转换为电机的位置值
-                # 例如：self.controller.move_to_positions(positions=converted_positions, ...)
-            
-            if simple_glove_data.left_angles:
-                print(f"左手角度数据: {simple_glove_data.left_angles}")
-                # TODO: 同步手套运动部分，将角度数据转换为电机控制指令
-                # 这里需要将手套的角度数据转换为电机的位置值
-                # 例如：self.controller.move_to_positions(positions=converted_positions, ...)
+            # 根据选择检查校准状态，未校准则直接返回
+            if use_right_hand:
+                if not simple_glove_data.right_calibrated:
+                    print("右手未校准，跳过此次数据")
+                    return
+                if simple_glove_data.right_angles:
+                    print(f"右手角度数据: {simple_glove_data.right_angles}")
+                    self.controller.move_to_angles(
+                        angles=simple_glove_data.right_angles, 
+                        velocity=200, 
+                        max_current=1000, 
+                        wait_time=0
+                    )
+            else:
+                if not simple_glove_data.left_calibrated:
+                    print("左手未校准，跳过此次数据")
+                    return
+                if simple_glove_data.left_angles:
+                    print(f"左手角度数据: {simple_glove_data.left_angles}")
+                    self.controller.move_to_angles(
+                        angles=simple_glove_data.left_angles, 
+                        velocity=200, 
+                        max_current=1000, 
+                        wait_time=0
+                    )
             
             print("-" * 50)
 

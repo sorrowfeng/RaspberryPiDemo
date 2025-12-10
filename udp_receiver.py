@@ -146,10 +146,9 @@ class UDPReceiver:
                                 except ValueError:
                                     param_dict[p_name] = 0.0
                     
-                    # 检查校准状态
-                    simple_data.right_calibrated = param_dict.get("r12", 0) == 1 and param_dict.get("r16", 0) == 1
-                    simple_data.left_calibrated = param_dict.get("l12", 0) == 1 and param_dict.get("l16", 0) == 1
-                    
+                    # 检查校准状态：只有L_CalibrationStatus和R_CalibrationStatus都等于3才认为校准完成
+                    simple_data.left_calibrated = param_dict.get("L_CalibrationStatus", 0) == 3
+                    simple_data.right_calibrated = param_dict.get("R_CalibrationStatus", 0) == 3
                     # 提取右手角度数据
                     simple_data.right_angles[0] = -param_dict.get("r2", 0.0)
                     simple_data.right_angles[1] = -param_dict.get("r0", 0.0)
