@@ -332,6 +332,23 @@ class GPIOController:
         return False
 
 
+# RGB颜色宏定义
+class RGB_COLORS:
+    """
+    RGB颜色宏定义类
+    用于标准化状态指示灯的颜色表示
+    颜色值范围: 0-255
+    """
+    # 基本颜色
+    RED = (255, 0, 0)            # 红色 - 报警、错误状态
+    GREEN = (0, 255, 0)          # 绿色 - 就绪、完成、成功状态
+    BLUE = (0, 0, 255)           # 蓝色 - 运行中状态
+    YELLOW = (255, 255, 0)       # 黄色 - 未连接、断开、失败状态
+    CYAN = (0, 255, 255)         # 青色 - 手套监听状态
+    WHITE = (255, 255, 255)      # 白色 - 通用状态
+    OFF = (0, 0, 0)              # 关闭 - 熄灭状态
+
+
 # GPIO引脚定义（使用常规GPIO，避开复用功能引脚）
 class GPIO_PINS:
     """
@@ -345,6 +362,8 @@ class GPIO_PINS:
     - GPIO 27 (物理引脚13) - 常规GPIO  
     - GPIO 22 (物理引脚15) - 常规GPIO
     - GPIO 23 (物理引脚16) - 常规GPIO
+    - GPIO 26 (物理引脚37) - 常规GPIO
+    - GPIO 20 (物理引脚38) - PCM DIN
     
     输出引脚（物理引脚位置）:
     - GPIO 5  (物理引脚29) - 常规GPIO
@@ -361,6 +380,7 @@ class GPIO_PINS:
     CONNECT = 22          # 连接设备 (物理引脚15)
     DISCONNECT = 23       # 断开连接 (物理引脚16)
     START_GLOVE_LISTEN = 26  # 开始手套监听 (物理引脚37)
+    START_GRASP = 20        # 开始抓握 (物理引脚38)
     
     # 输出引脚定义（常规GPIO，无复用功能）
     READY_STATUS = 5      # 程序已准备好/待命状态 (物理引脚29)

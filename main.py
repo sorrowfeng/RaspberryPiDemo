@@ -8,7 +8,7 @@ import time
 import threading
 import keyboard
 from lhandpro_controller import LHandProController
-from gpio_controller import GPIOController, GPIO_PINS
+from gpio_controller import GPIOController, GPIO_PINS, RGB_COLORS
 from udp_receiver import UDPReceiver
 from udp_receiver import SimpleGloveData
 try:
@@ -29,12 +29,18 @@ class MotionController:
         self.motion_lock = threading.Lock()
         self.stop_motion_flag = threading.Event()
         
-        # 定义运动位置序列
-        self.positions = [
+        # 定义循环运动位置序列
+        self.cycle_move_positions = [
             [10000, 10000, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0],
             [0, 0, 10000, 10000, 10000, 10000],
             [0, 0, 0, 0, 0, 0],
+        ]
+
+        # 定义抓握位置
+        self.grasp_positions = [
+            [5000, 0, 0, 0, 0, 0],
+            [5000, 10000, 10000, 10000, 10000, 10000],
         ]
         
         # 手套监听控制
@@ -68,10 +74,14 @@ class MotionController:
             callback=self.on_disconnect_device,
             pull_up_down=GPIO.PUD_DOWN
         )
-        # 添加手套监听启动的GPIO引脚
         self.gpio.setup_input(
             GPIO_PINS.START_GLOVE_LISTEN,
             callback=self.on_start_glove_listen,
+            pull_up_down=GPIO.PUD_DOWN
+        )
+        self.gpio.setup_input(
+            GPIO_PINS.START_GRASP,
+            callback=self.on_start_grasp,
             pull_up_down=GPIO.PUD_DOWN
         )
         
@@ -83,7 +93,7 @@ class MotionController:
         # RGB 用于状态显示（使用硬件PWM）
         self.gpio.setup_rgb_pwm(GPIO_PINS.RGB_R, GPIO_PINS.RGB_G, GPIO_PINS.RGB_B, freq=1000)
         # 初始状态：断开/未就绪 -> 黄色
-        self.gpio.set_rgb_color(255, 255, 0)
+        self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
         
         print("✅ GPIO设置完成")
 
@@ -105,7 +115,7 @@ class MotionController:
         # 状态指示：运行中 -> 蓝色
         self.gpio.output_high(GPIO_PINS.RUNNING_STATUS)
         self.gpio.output_low(GPIO_PINS.READY_STATUS)
-        self.gpio.set_rgb_color(0, 0, 255)
+        self.gpio.set_rgb_color(*RGB_COLORS.BLUE)
         
         # 在单独线程中执行运动
         motion_thread = threading.Thread(target=self._run_motion_cycle, daemon=True)
@@ -134,7 +144,7 @@ class MotionController:
         # 状态指示：待命 -> 绿色
         self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
         self.gpio.output_high(GPIO_PINS.READY_STATUS)
-        self.gpio.set_rgb_color(0, 255, 0)
+        self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
 
     def on_connect_device(self):
         """连接设备回调"""
@@ -156,14 +166,14 @@ class MotionController:
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
             self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             # RGB 显示绿色（就绪）
-            self.gpio.set_rgb_color(0, 255, 0)
+            self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
         else:
             print("❌ 设备连接失败")
             self.gpio.output_low(GPIO_PINS.STATUS_LED)
             self.gpio.output_low(GPIO_PINS.READY_STATUS)
             self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             # RGB 显示黄色（失败/未连接）
-            self.gpio.set_rgb_color(255, 255, 0)
+            self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
 
     def on_disconnect_device(self):
         """断开设备回调"""
@@ -180,7 +190,7 @@ class MotionController:
         self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
         self.gpio.output_low(GPIO_PINS.READY_STATUS)
         # RGB 显示黄色（断开）
-        self.gpio.set_rgb_color(255, 255, 0)
+        self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
         print("✅ 设备已断开")
 
     def _run_motion_cycle(self):
@@ -189,7 +199,7 @@ class MotionController:
         
         try:
             while not self.stop_motion_flag.is_set():
-                for i, pos_list in enumerate(self.positions):
+                for i, pos_list in enumerate(self.cycle_move_positions):
                     # 检查停止标志
                     if self.stop_motion_flag.is_set():
                         print("⏹️ 运动被停止")
@@ -199,7 +209,7 @@ class MotionController:
                     if self.controller.get_alarm():
                         print("⚠️ 检测到报警，停止运动循环")
                         # 报警状态指示：红色
-                        self.gpio.set_rgb_color(255, 0, 0)
+                        self.gpio.set_rgb_color(*RGB_COLORS.RED)
                         return
                     
                     # 执行运动
@@ -215,7 +225,7 @@ class MotionController:
                         continue
                     
                     # 检查是否完成一个循环（回到第一个位置）
-                    if i == len(self.positions) - 1:
+                    if i == len(self.cycle_move_positions) - 1:
                         # 完成一个循环，输出脉冲信号
                         print("✅ 完成一个循环，输出完成信号")
                         self.gpio.output_pulse(GPIO_PINS.CYCLE_COMPLETE, duration=0.5)
@@ -235,7 +245,7 @@ class MotionController:
             # 状态指示：待命 -> 绿色
             self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
-            self.gpio.set_rgb_color(0, 255, 0)
+            self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
             print("🏁 循环运动结束")
     
     def on_start_glove_listen(self):
@@ -255,12 +265,35 @@ class MotionController:
         # 启动手套监听
         self.start_glove_listening()
     
+    def on_start_grasp(self):
+        """开始抓握"""
+        print("✅ 开始抓握")
+        
+        for i in range(3):
+            if self.stop_motion_flag.is_set():
+                print("⏹️ 抓握被停止")
+                return
+            
+            # 执行抓握位置
+            success = self.controller.move_to_positions(
+                positions=self.grasp_positions[i],
+                velocity=20000,
+                max_current=1000,
+                wait_time=2
+            )
+            
+            if not success:
+                print(f"⚠️ 抓握位置 {i} 运动失败")
+                continue
+        
+        print("✅ 完成3次抓握")
+
     def start_glove_listening(self):
         """开始监听手套数据"""
         print("🎧 开始监听手套数据")
         
         # 状态指示：手套监听中 -> 青色
-        self.gpio.set_rgb_color(0, 255, 255)
+        self.gpio.set_rgb_color(*RGB_COLORS.CYAN)
         
         # 创建并启动UDP接收器
         try:
