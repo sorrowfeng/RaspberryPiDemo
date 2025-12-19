@@ -9,9 +9,9 @@ from lhandprolib_loader import (
     get_global_lhandpro_lib,
     LER_NONE, LER_PARAMETER, LER_KEY_FUNC_UNINIT, LER_GET_CONFIGURATION,
     LER_DATA_ANOMALY, LER_COMM_CONNECT, LER_COMM_SEND, LER_COMM_RECV,
-    LER_COMM_DATA_FORMAT, LER_INVALID_PATH, LER_LOG_SAVE_FAIL, LER_UNKNOWN,
+    LER_COMM_DATA_FORMAT, LER_INVALID_PATH, LER_LOG_SAVE_FAIL, LER_NOT_HOME, LER_UNKNOWN,
     LAC_DOF_6, LAC_DOF_15,
-    LCN_ECAT, LCN_CAN, LCN_CANFD, LCN_RS485,
+    LCN_ECAT, LCN_CANFD, LCN_RS485,
     LCM_POSITION, LCM_VELOCITY, LCM_TORQUE, LCM_VEL_TOR, LCM_POS_TOR, LCM_HOME,
     LST_STOPPED, LST_RUNNING, LST_ALARM, LST_POS_LIMIT, LST_NEG_LIMIT,
     LST_BOTH_LIMIT, LST_EMG_STOP, LST_HOMING,
@@ -19,7 +19,7 @@ from lhandprolib_loader import (
     LSS_FINGER_3_1, LSS_FINGER_3_2, LSS_FINGER_4_1, LSS_FINGER_4_2,
     LSS_FINGER_5_1, LSS_FINGER_5_2, LSS_HAND_PALM, LSS_MAX_COUNT,
     LDR_HAND_RIGHT, LDR_HAND_LEFT,
-    LogAddCallbackWrapper, SendDataCallbackWrapper, ECSendDataCallbackWrapper
+    LogAddCallbackWrapper, ECSendDataCallbackWrapper, CANFDSendDataCallbackWrapper
 )
 
 
@@ -71,6 +71,7 @@ class PyLHandProLib:
                 LER_COMM_DATA_FORMAT: "通讯数据格式错误",
                 LER_INVALID_PATH: "无效的文件路径",
                 LER_LOG_SAVE_FAIL: "日志文件保存失败",
+                LER_NOT_HOME: "没回零错误",
                 LER_UNKNOWN: "未知错误",
             }
             message = error_messages.get(result, f"未知错误码: {result}")
@@ -98,6 +99,17 @@ class PyLHandProLib:
         self._callbacks['send_rpdo'] = wrapped_callback
         self._lib.lhandprolib_set_send_rpdo_callback(self._handle, wrapped_callback)
 
+    def set_send_canfd_callback(self, callback: Callable[[bytes], bool]) -> None:
+        """设置发送CANFD回调"""
+
+        def wrapper(data_ptr, length: int) -> bool:
+            data = bytes(data_ptr[:length])
+            return callback(data)
+
+        wrapped_callback = CANFDSendDataCallbackWrapper(wrapper)
+        self._callbacks['send_canfd'] = wrapped_callback
+        self._lib.lhandprolib_set_send_canfd_callback(self._handle, wrapped_callback)
+
     def set_log_callback(self, callback: Callable[[str], None]) -> None:
         """设置日志回调"""
 
@@ -114,6 +126,11 @@ class PyLHandProLib:
         data_array = (c_char * len(data))(*data)
         return self._lib.lhandprolib_set_tpdo_data_decode(self._handle, data_array, len(data))
 
+    def set_canfd_data_decode(self, data: bytes) -> int:
+        """设置CANFD数据解码"""
+        data_array = (c_char * len(data))(*data)
+        return self._lib.lhandprolib_set_canfd_data_decode(self._handle, data_array, len(data))
+
     # RPDO数据处理
     def get_pre_send_rpdo_data(self) -> Tuple[bytes, int]:
         """获取预发送RPDO数据"""
@@ -125,6 +142,19 @@ class PyLHandProLib:
             self._handle, data_buffer, byref(io_size)
         )
         self._check_error(result, "获取RPDO数据")
+
+        return bytes(data_buffer[:io_size.value]), io_size.value
+
+    def get_pre_send_canfd_data(self) -> Tuple[bytes, int]:
+        """获取预发送CANFD数据"""
+        buffer_size = 1024
+        data_buffer = (c_char * buffer_size)()
+        io_size = c_int(buffer_size)
+
+        result = self._lib.lhandprolib_get_pre_send_canfd_data(
+            self._handle, data_buffer, byref(io_size)
+        )
+        self._check_error(result, "获取CANFD数据")
 
         return bytes(data_buffer[:io_size.value]), io_size.value
 

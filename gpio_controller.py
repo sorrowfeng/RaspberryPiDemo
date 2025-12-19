@@ -105,13 +105,7 @@ class GPIOController:
         
         if callback:
             self.callbacks[pin] = callback
-            # 使用硬件中断（如果可用）
-            try:
-                GPIO.add_event_detect(pin, edge, callback=self._gpio_callback, bouncetime=debounce_ms)
-            except Exception as e:
-                print(f"无法使用硬件中断，将使用轮询模式: {e}")
-                # 如果硬件中断失败，使用轮询模式
-                self._start_monitor_thread()
+            self._start_monitor_thread()
 
     def setup_output(self, pin: int, initial: bool = False):
         """

@@ -20,6 +20,7 @@ LER_COMM_RECV = 7
 LER_COMM_DATA_FORMAT = 8
 LER_INVALID_PATH = 9
 LER_LOG_SAVE_FAIL = 10
+LER_NOT_HOME = 11
 LER_UNKNOWN = 999
 
 # 自由度枚举
@@ -28,9 +29,8 @@ LAC_DOF_15 = 15
 
 # 通讯类型枚举
 LCN_ECAT = 0
-LCN_CAN = 1
-LCN_CANFD = 2
-LCN_RS485 = 3
+LCN_CANFD = 1
+LCN_RS485 = 2
 
 # 控制模式枚举
 LCM_POSITION = 0
@@ -70,8 +70,8 @@ LDR_HAND_LEFT = 1
 
 # 回调函数类型定义
 LogAddCallbackWrapper = ctypes.CFUNCTYPE(None, c_char_p)
-SendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, c_uint, POINTER(c_char), c_uint)
 ECSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
+CANFDSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
 
 
 class LHandProLibLoader:
@@ -151,6 +151,9 @@ class LHandProLibLoader:
         # 回调设置
         self._lib.lhandprolib_set_send_rpdo_callback.restype = None
         self._lib.lhandprolib_set_send_rpdo_callback.argtypes = [c_void_p, ECSendDataCallbackWrapper]
+        
+        self._lib.lhandprolib_set_send_canfd_callback.restype = None
+        self._lib.lhandprolib_set_send_canfd_callback.argtypes = [c_void_p, CANFDSendDataCallbackWrapper]
 
         self._lib.lhandprolib_set_log_callback.restype = None
         self._lib.lhandprolib_set_log_callback.argtypes = [c_void_p, LogAddCallbackWrapper]
@@ -158,12 +161,18 @@ class LHandProLibLoader:
         # 数据接收处理
         self._lib.lhandprolib_set_tpdo_data_decode.restype = c_int
         self._lib.lhandprolib_set_tpdo_data_decode.argtypes = [c_void_p, POINTER(c_char), c_int]
+        
+        self._lib.lhandprolib_set_canfd_data_decode.restype = c_int
+        self._lib.lhandprolib_set_canfd_data_decode.argtypes = [c_void_p, POINTER(c_char), c_int]        
 
         # RPDO数据处理
         self._lib.lhandprolib_get_pre_send_rpdo_data.restype = c_int
         self._lib.lhandprolib_get_pre_send_rpdo_data.argtypes = [c_void_p, POINTER(c_char), POINTER(c_int)]
+        
+        self._lib.lhandprolib_get_pre_send_canfd_data.restype = c_int
+        self._lib.lhandprolib_get_pre_send_canfd_data.argtypes = [c_void_p, POINTER(c_char), POINTER(c_int)]
 
-        # 配置相关
+        # 配置相关函数
         self._lib.lhandprolib_set_dof_type.restype = c_int
         self._lib.lhandprolib_set_dof_type.argtypes = [c_void_p, c_int]
 

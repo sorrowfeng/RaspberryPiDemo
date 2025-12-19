@@ -1,24 +1,24 @@
-# LHandProLib EtherCAT Python 示例项目
+# LHandProLib Python 示例项目
 
 ## 项目概述
 
-LHandProLib EtherCAT Python 示例项目是一个基于树莓派的灵巧手演示项目，集成了 EtherCAT 通信、GPIO 硬件控制和手套数据监听功能。该项目提供了简洁易用的接口，允许用户通过 GPIO 按钮或程序控制灵巧手的运动，同时支持通过 UDP 接收手套数据进行实时监控。
+LHandProLib Python 示例项目是一个基于树莓派的灵巧手演示项目，集成了 CANFD 通信、EtherCAT 通信、GPIO 硬件控制和手套数据监听功能。该项目提供了简洁易用的接口，允许用户通过 GPIO 按钮或程序控制灵巧手的运动，同时支持通过 UDP 接收手套数据进行实时监控。
 
 ## 主要功能特性
 
 ### 核心功能
-- **EtherCAT 通信**: 基于 pysoem 库实现与 LHandPro 灵巧手的 EtherCAT 通信
+- **双通信模式支持**: 同时支持 CANFD 和 EtherCAT 两种通信方式
 - **GPIO 硬件控制**: 支持通过树莓派 GPIO 引脚触发各种操作
 - **手套数据监听**: 通过 UDP 实时接收和处理手套角度数据
 - **多任务并行**: 支持同时运行灵巧手运动和手套数据监听
 - **状态反馈**: 通过 LED、RGB 灯和 GPIO 输出提供直观的状态指示
 
 ### 具体功能
-1. **设备连接管理**: 自动连接和断开 LHandPro 设备
+1. **设备连接管理**: 自动连接和断开 LHandPro 设备，支持多设备选择
 2. **循环运动控制**: 执行预设的位置序列循环运动
 3. **实时状态监控**: 监控设备连接状态、运动状态和手套数据
 4. **安全保障**: 支持紧急停止和报警处理
-5. **测试工具**: 提供 GPIO 测试和手套数据测试工具
+5. **测试工具**: 提供 GPIO 测试、手套数据测试和功能测试工具
 
 ## 系统架构
 
@@ -27,20 +27,21 @@ LHandProLib EtherCAT Python 示例项目是一个基于树莓派的灵巧手演�
 │                     应用层                               │
 ├───────────────┬───────────────┬─────────────────────────┤
 │ main.py       │ test_gpio.py  │ test_glove.py           │
+│ main_aging.py │ main_canfd.py │ test.py                 │
 └───────────────┴───────────────┴─────────────────────────┘
         │                  │                  │
         ▼                  ▼                  ▼
 ┌─────────────────────────────────────────────────────────┐
 │                     控制层                               │
 ├───────────────┬───────────────┬─────────────────────────┤
-│ motion_controller │ gpio_controller  │ udp_receiver        │
+│ lhandpro_controller │ gpio_controller  │ udp_receiver        │
 └───────────────┴───────────────┴─────────────────────────┘
         │                  │                  │
         ▼                  ▼                  │
 ┌─────────────────────────────────┐          │
 │       设备驱动层                │          │
 ├───────────────┬───────────────┤          │
-│ lhandpro_controller │ ethercat_master │<─────────┘
+│ canfd_lib     │ ethercat_master │<─────────┘
 └───────────────┴───────────────┘
         │                  │
         ▼                  ▼
@@ -51,12 +52,38 @@ LHandProLib EtherCAT Python 示例项目是一个基于树莓派的灵巧手演�
 └───────────────┴───────────────┴─────────────────────────┘
 ```
 
+## 文件用途说明
+
+| 文件名 | 用途描述 |
+|--------|----------|
+| `.gitignore` | Git 忽略文件配置，指定不被版本控制的文件和目录 |
+| `GPIO_README.md` | GPIO 相关的详细说明文档 |
+| `LICENSE` | 项目许可证文件（Apache-2.0） |
+| `README.md` | 项目主文档，包含项目概述、使用指南等信息 |
+| `actions.txt` | 动作序列配置文件，定义灵巧手的运动动作 |
+| `canfd_lib.py` | CANFD 通信库封装，提供 CANFD 设备的扫描、连接、发送和接收功能 |
+| `ethercat_master.py` | EtherCAT 主站实现，处理与 LHandPro 设备的 EtherCAT 通信 |
+| `gpio_controller.py` | GPIO 控制器，管理树莓派 GPIO 引脚的输入和输出操作 |
+| `lhandpro_controller.py` | LHandPro 控制器封装类，支持 CANFD 和 EtherCAT 双模式通信 |
+| `lhandprolib_loader.py` | LHandPro 库加载器，负责加载和初始化 LHandPro 相关的动态库 |
+| `lhandprolib_wrapper.py` | LHandPro 库包装器，提供 Python 对 LHandPro 库的接口封装 |
+| `main.py` | 主程序，集成设备控制、GPIO 操作和手套数据监听功能 |
+| `main_aging.py` | 老化测试程序，用于长时间稳定性测试 |
+| `main_canfd.py` | CANFD 专用主程序，专注于 CANFD 通信模式的功能演示 |
+| `requirements.txt` | Python 依赖包列表，包含项目所需的第三方库 |
+| `test.py` | 通用测试程序，用于测试 LHandPro 控制器的各种功能 |
+| `test_glove.py` | 手套数据测试工具，验证 UDP 手套数据接收功能 |
+| `test_gpio.py` | GPIO 测试工具，用于测试 GPIO 引脚的输入和输出功能 |
+| `udp_receiver.py` | UDP 数据接收器，负责接收和处理手套发送的 UDP 数据 |
+
 ## 硬件要求
 
 ### 主要硬件
 - 树莓派 4B
 - LHandPro 灵巧手
 - 电源适配器
+- CANFD 通信模块（可选，用于 CANFD 通信模式）
+- EtherCAT 通信模块（可选，用于 EtherCAT 通信模式）
 
 ### GPIO 引脚连接
 
@@ -69,6 +96,7 @@ LHandProLib EtherCAT Python 示例项目是一个基于树莓派的灵巧手演�
 | GPIO 22 | 引脚 15 | CONNECT：连接设备 |
 | GPIO 23 | 引脚 16 | DISCONNECT：断开设备连接 |
 | GPIO 26 | 引脚 37 | START_GLOVE_LISTEN：开始手套监听 |
+| GPIO 20 | 引脚 38 | START_GRASP：开始抓握 |
 
 #### 输出引脚（BCM 编号模式）
 
@@ -97,19 +125,16 @@ LHandProLib EtherCAT Python 示例项目是一个基于树莓派的灵巧手演�
 # 安装系统依赖
 sudo apt-get update
 sudo apt-get install -y python3-pip python3-dev git
-sudo apt-get install -y build-essential libi2c-dev libssl-dev
 
 # 安装 Python 依赖
 pip3 install -r requirements.txt
 ```
 
-### 3. 克隆项目
+### 3. 项目位置
 
 ```bash
-# 进入工作目录
-cd /home/ubuntu/Documents
-
-cd aarch64/share/LHandProLib/examples/EtherCAT_python
+# 进入项目目录
+cd /home/ubuntu/Documents/aarch64/share/LHandProLib/examples/CANFD_python
 ```
 
 ## 使用指南
@@ -117,18 +142,35 @@ cd aarch64/share/LHandProLib/examples/EtherCAT_python
 ### 快速开始
 
 1. **连接硬件**:
-   - 将 LHandPro 灵巧手通过 EtherCAT 连接到树莓派
+   - 将 LHandPro 灵巧手通过 CANFD 或 EtherCAT 连接到树莓派
    - 连接 GPIO 按钮和 LED 到相应引脚
    - 确保电源连接稳定
 
 2. **运行主程序**:
 
 ```bash
-# 以 root 权限运行（需要 GPIO 和 EtherCAT 权限）
+# 以 root 权限运行（需要 GPIO 和 CANFD/EtherCAT 权限）
 sudo python3 main.py
 ```
 
-3. **操作流程**:
+3. **选择通信模式**:
+
+```bash
+# 使用 CANFD 模式运行
+sudo python3 main.py --mode CANFD
+
+# 使用 EtherCAT 模式运行
+sudo python3 main.py --mode ECAT
+```
+
+4. **指定设备索引** (仅 CANFD 模式):
+
+```bash
+# 连接指定设备索引
+sudo python3 main.py --mode CANFD --device-index 1
+```
+
+5. **操作流程**:
    - 按下 GPIO 22（连接设备）按钮
    - 按下 GPIO 17（开始运动）按钮
    - 按下 GPIO 27（停止运动）按钮
@@ -139,10 +181,32 @@ sudo python3 main.py
 
 #### main.py
 主程序，包含以下功能：
+- 支持 CANFD 和 EtherCAT 双通信模式
 - 自动连接 LHandPro 设备
 - 执行预设的循环运动序列
 - 通过 GPIO 控制灵巧手
 - 监听手套 UDP 数据
+
+#### main_canfd.py
+CANFD 专用主程序，专注于 CANFD 通信模式的功能演示：
+
+```bash
+sudo python3 main_canfd.py
+```
+
+#### main_aging.py
+老化测试程序，用于长时间稳定性测试：
+
+```bash
+sudo python3 main_aging.py
+```
+
+#### test.py
+通用测试程序，用于测试 LHandPro 控制器的各种功能：
+
+```bash
+sudo python3 test.py
+```
 
 #### test_gpio.py
 GPIO 测试工具，用于测试 GPIO 引脚的输入和输出功能：
@@ -259,12 +323,17 @@ class UDPReceiver:
    - 确保使用 root 权限运行程序
    - 检查 GPIO 引脚是否被其他程序占用
 
-3. **EtherCAT 连接失败**
+3. **CANFD 连接失败**
+   - 检查 CANFD 线缆连接
+   - 确保 CANFD 模块已正确安装
+   - 使用 `test.py` 测试 CANFD 设备连接
+
+4. **EtherCAT 连接失败**
    - 检查 EtherCAT 线缆连接
    - 确保以太网卡已启用
    - 检查 LHandPro 设备电源
 
-4. **手套数据接收失败**
+5. **手套数据接收失败**
    - 检查 UDP 端口设置
    - 确保网络连接正常
    - 检查手套设备是否正常发送数据
@@ -273,6 +342,7 @@ class UDPReceiver:
 
 - 使用 `test_gpio.py` 测试 GPIO 功能
 - 使用 `test_glove.py` 测试手套数据接收
+- 使用 `test.py` 测试 CANFD 设备连接
 - 查看程序输出的日志信息
 
 ## 许可证信息
@@ -291,6 +361,12 @@ class UDPReceiver:
 - 增加手套数据模拟功能
 - 完善状态指示系统
 - 修复已知 bug
+
+### v2.0.0 (2024-03-20)
+- 新增 CANFD 通信模式支持
+- 实现双通信模式切换功能
+- 优化设备连接和选择逻辑
+- 增加多设备支持
 
 ## 致谢
 

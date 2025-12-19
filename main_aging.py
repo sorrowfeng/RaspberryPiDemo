@@ -19,7 +19,7 @@ class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
 
     def __init__(self):
-        self.controller = LHandProController()
+        self.controller = LHandProController(communication_mode="ECAT")
         self.gpio = GPIOController()
         
         # 运动控制标志

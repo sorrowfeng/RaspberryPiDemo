@@ -20,8 +20,8 @@ except ImportError:
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
 
-    def __init__(self):
-        self.controller = LHandProController()
+    def __init__(self, communication_mode: str):
+        self.controller = LHandProController(communication_mode=communication_mode)
         self.gpio = GPIOController()
         
         # 运动控制标志
@@ -160,7 +160,7 @@ class MotionController:
             self.motion_running = False
         
         # 连接设备
-        if self.controller.connect(auto_select=False, enable_motors=True, home_motors=True):
+        if self.controller.connect():
             print("✅ 设备连接成功")
             self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
@@ -411,7 +411,7 @@ class MotionController:
         
         # 自动连接设备并开始循环运动
         print("🔍 正在尝试自动连接设备...")
-        if self.controller.connect(auto_select=False, enable_motors=True, home_motors=True):
+        if self.controller.connect():
             print("✅ 设备自动连接成功")
             self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
@@ -466,7 +466,8 @@ class MotionController:
 
 
 def main():
-    motion_ctrl = MotionController()
+    # 创建运动控制器实例，传入通信模式
+    motion_ctrl = MotionController(communication_mode="CANFD")
     return motion_ctrl.run()
 
 

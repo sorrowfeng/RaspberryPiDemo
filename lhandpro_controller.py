@@ -1,28 +1,74 @@
 """
-LHandPro 控制器封装类
+LHandPro 控制器封装类 - 支持ECAT和CANFD双模式
 提供连接、断开、运动控制等功能
 """
 
 import time
 import threading
 from typing import Optional, List, Tuple
-from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT
-from ethercat_master import EthercatMaster
+from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD
+from canfd_lib import CANFD
 
 
 class LHandProController:
-    """LHandPro 控制器封装类"""
+    """LHandPro 控制器封装类 - 支持ECAT和CANFD双模式"""
 
-    def __init__(self):
-        """初始化控制器"""
+    def __init__(self, communication_mode: str = "CANFD"):
+        """初始化控制器
+        
+        Args:
+            communication_mode: 通信模式，可选值为 "CANFD" 或 "ECAT"
+        """
         self.lhp: Optional[PyLHandProLib] = None
-        self.ec_master: Optional[EthercatMaster] = None
-        self.stop_flag: Optional[threading.Event] = None
-        self.monitor_thread: Optional[threading.Thread] = None
+        
+        # CANFD 相关属性
+        self.canfd = None
+        
+        # ECAT 相关属性
+        self.ec_master = None
+        self.stop_flag = None
+        self.monitor_thread = None
+        
+        # 通用属性
         self.is_connected = False
         self.dof_total = 0
         self.dof_active = 0
+        self.communication_mode = communication_mode.upper()
+        
+        # 验证通信模式
+        if self.communication_mode not in ["CANFD", "ECAT"]:
+            raise ValueError(f"不支持的通信模式: {self.communication_mode}，请使用 'CANFD' 或 'ECAT'")
+        
+        # 根据通信模式动态导入所需库
+        self._import_communication_libs()
+    
+    def _import_communication_libs(self):
+        """根据通信模式导入所需的库"""
+        global CANFD, EthercatMaster
+        
+        if self.communication_mode == "CANFD":
+            from canfd_lib import CANFD
+        elif self.communication_mode == "ECAT":
+            from ethercat_master import EthercatMaster
 
+    def _canfd_send_callback(self, data: bytes) -> bool:
+        """CANFD 发送回调函数"""
+        if self.canfd and self.is_connected:
+            try:
+                # CANFD消息ID可以根据实际需求调整
+                return self.canfd.send(0x500+1, data)
+            except Exception as e:
+                print(f"CANFD发送失败: {e}")
+        return False
+
+    def _canfd_receive_callback(self, msg):
+        """CANFD 接收回调函数"""
+        if self.lhp and self.is_connected:
+            if msg["id"] != 0x480+1:
+                return
+            # 处理接收到的CANFD消息
+            self.lhp.set_canfd_data_decode(msg["data"])
+    
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
         if self.ec_master:
@@ -32,8 +78,7 @@ class LHandProController:
 
     def _monitor_thread_func(self):
         """监控线程函数：刷新解析 TPDO 数据"""
-        time.sleep(1.0)  # 等待初始化
-        while not self.stop_flag.is_set():
+        while not self.stop_flag.is_set() and self.is_connected:
             if self.ec_master:
                 input_size = self.ec_master.getInputSize()
                 inputs = self.ec_master.getInputs(input_size)
@@ -43,21 +88,29 @@ class LHandProController:
 
     def connect(
         self,
-        channel_index: Optional[int] = None,
-        auto_select: bool = True,
         enable_motors: bool = True,
         home_motors: bool = True,
-        home_wait_time: float = 5.0
+        home_wait_time: float = 5.0,
+        device_index: Optional[int] = None,
+        auto_select: bool = True,
+        # CANFD 特定参数
+        canfd_nom_baudrate: int = 1000000,
+        canfd_dat_baudrate: int = 5000000,
     ) -> bool:
         """
         连接并初始化 LHandPro 设备
 
         Args:
-            channel_index: 网口索引，如果为None则自动选择或让用户选择
-            auto_select: 是否自动选择网口（当有多个网口时）
             enable_motors: 是否自动使能电机
             home_motors: 是否自动回零
             home_wait_time: 回零等待时间（秒）
+            
+            # CANFD 特定参数
+            canfd_nom_baudrate: CANFD标称波特率
+            canfd_dat_baudrate: CANFD数据波特率
+            device_index: 设备索引，如果为None则自动选择或让用户选择
+                          （注意：通道固定为0）
+            auto_select: 是否自动选择设备（当有多个设备时）
 
         Returns:
             bool: 连接是否成功
@@ -65,10 +118,121 @@ class LHandProController:
         try:
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
-        except Exception as e:
-            print(f"创建 LHandPro 失败: {e}")
+            
+            if self.communication_mode == "CANFD":
+                return self._connect_canfd(
+                    enable_motors=enable_motors,
+                    home_motors=home_motors,
+                    home_wait_time=home_wait_time,
+                    canfd_nom_baudrate=canfd_nom_baudrate,
+                    canfd_dat_baudrate=canfd_dat_baudrate,
+                    device_index=device_index,
+                    auto_select=auto_select
+                )
+            elif self.communication_mode == "ECAT":
+                # ECAT模式仍然保留原来的参数传递方式
+                return self._connect_ecat(
+                    enable_motors=enable_motors,
+                    home_motors=home_motors,
+                    home_wait_time=home_wait_time,
+                    channel_index=device_index, 
+                    auto_select=auto_select
+                )
+            
+        except (LHandProLibError, Exception) as e:
+            print(f"操作失败: {e}")
+            if self.lhp:
+                self.lhp.close()
+                self.lhp = None
+            self._cleanup_communication_resources()
             return False
+    
+    def _connect_canfd(self, enable_motors, home_motors, home_wait_time, canfd_nom_baudrate, canfd_dat_baudrate, device_index, auto_select):
+        """使用CANFD模式连接设备"""
+        # 初始化CANFD
+        self.canfd = CANFD()
+        
+        print("正在使用CANFD通讯:")
+        
+        # 扫描CANFD设备
+        device_count = self.canfd.scan()
+        print(f"找到CANFD设备数量：{device_count}")
+        
+        if device_count == 0:
+            print("未找到CANFD设备")
+            self.lhp.close()
+            self.lhp = None
+            self.canfd = None
+            return False
+        
+        # 处理设备索引
+        if device_index is None:
+            if device_count == 1:
+                # 只有一个设备时自动选择
+                print(f"✅ 检测到单个设备，自动选择设备索引: 0")
+                device_index = 0
+            elif auto_select:
+                # 自动选择第一个设备
+                print(f"✅ 自动选择设备索引: 0")
+                device_index = 0
+            else:
+                # 多个设备时让用户选择
+                print(f"请选择对应设备 [0 - {device_count - 1}]")
+                while True:
+                    try:
+                        user_input = input(">>> ")
+                        if user_input.strip() == "":
+                            print(f"使用默认选择: 0")
+                            device_index = 0
+                            break
 
+                        device_index = int(user_input)
+                        if 0 <= device_index < device_count:
+                            print(f"已选择设备索引: {device_index}")
+                            break
+                        else:
+                            print(f"请输入 [0 - {device_count - 1}]")
+                    except ValueError:
+                        print("请输入数字")
+        else:
+            if not (0 <= device_index < device_count):
+                print(f"无效的设备索引: {device_index}")
+                self.lhp.close()
+                self.lhp = None
+                self.canfd = None
+                return False
+            print(f"使用指定设备索引: {device_index}")
+        
+        # 通道固定为0
+        channel_index = 0
+        print(f"使用固定通道索引: {channel_index}")
+        
+        # 连接CANFD设备
+        print(f"正在连接CANFD设备，标称波特率: {canfd_nom_baudrate}bps，数据波特率: {canfd_dat_baudrate}bps")
+        if not self.canfd.connect(device_index=device_index, channel_index=channel_index, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
+            print("CANFD设备连接失败")
+            self.lhp.close()
+            self.lhp = None
+            self.canfd = None
+            return False
+        
+        print("CANFD设备连接成功")
+        self.is_connected = True
+        
+        # 设置CANFD接收回调
+        self.canfd.set_receive_callback(self._canfd_receive_callback)
+        
+        # 设置发送回调
+        self.lhp.set_send_canfd_callback(self._canfd_send_callback)      
+
+        # 初始化LHandProLib为CANFD模式
+        self.lhp.initial(LCN_CANFD)
+        
+        # 执行通用初始化步骤
+        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+    
+    def _connect_ecat(self, enable_motors, home_motors, home_wait_time, channel_index, auto_select):
+        """使用ECAT模式连接设备"""
         # 创建 EtherCAT 主站
         self.ec_master = EthercatMaster()
 
@@ -158,7 +322,12 @@ class LHandProController:
             print(f"LHandProLib 初始化失败: {e}")
             self.disconnect()
             return False
-
+            
+        # 执行通用初始化步骤
+        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+    
+    def _common_initialization(self, enable_motors, home_motors, home_wait_time):
+        """通用初始化步骤"""
         # 获取自由度
         self.dof_total, self.dof_active = self.lhp.get_dof()
         print(f"自由度: 总共 {self.dof_total}, 主动 {self.dof_active}")
@@ -176,9 +345,23 @@ class LHandProController:
             self.lhp.home_motors(0)
             time.sleep(home_wait_time)
 
-        self.is_connected = True
         return True
-
+    
+    def _cleanup_communication_resources(self):
+        """清理通信资源"""
+        if self.communication_mode == "CANFD" and self.canfd:
+            self.canfd.disconnect()
+            self.canfd = None
+        elif self.communication_mode == "ECAT":
+            if self.stop_flag:
+                self.stop_flag.set()
+            if self.monitor_thread and self.monitor_thread.is_alive():
+                self.monitor_thread.join(timeout=2.0)
+            if self.ec_master:
+                self.ec_master.stop()
+                time.sleep(0.1)
+                self.ec_master = None
+    
     def disconnect(self):
         """断开连接并清理资源"""
         if not self.is_connected:
@@ -186,22 +369,13 @@ class LHandProController:
 
         print("正在断开连接...")
 
-        # 停止监控线程
-        if self.stop_flag:
-            self.stop_flag.set()
-            if self.monitor_thread and self.monitor_thread.is_alive():
-                self.monitor_thread.join(timeout=2.0)
-
         # 关闭库
         if self.lhp:
             self.lhp.close()
             self.lhp = None
 
-        # 停止 EtherCAT 主站
-        if self.ec_master:
-            self.ec_master.stop()
-            time.sleep(0.1)
-            self.ec_master = None
+        # 清理通信资源
+        self._cleanup_communication_resources()
 
         self.is_connected = False
         print("已断开连接")
