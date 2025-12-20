@@ -69,7 +69,6 @@ class GPIOController:
         self.input_pins: Dict[int, bool] = {}  # pin -> 是否已设置
         self.output_pins: Dict[int, bool] = {}  # pin -> 当前状态
         self.callbacks: Dict[int, Callable] = {}  # pin -> 回调函数
-        self.last_trigger_time: Dict[int, float] = {}  # pin -> 上次触发时间
         self.debounce_ms: Dict[int, int] = {}  # pin -> 防抖时间(ms)
         self.rgb_pwm: Optional[Tuple[GPIO.PWM, GPIO.PWM, GPIO.PWM]] = None
         self.rgb_pins: Optional[Tuple[int, int, int]] = None
@@ -101,7 +100,6 @@ class GPIOController:
         GPIO.setup(pin, GPIO.IN, pull_up_down=pull_up_down)
         self.input_pins[pin] = True
         self.debounce_ms[pin] = debounce_ms
-        self.last_trigger_time[pin] = 0.0
         
         if callback:
             self.callbacks[pin] = callback
@@ -232,23 +230,8 @@ class GPIOController:
 
         return GPIO.input(pin) == GPIO.HIGH
 
-    def _gpio_callback(self, pin: int):
-        """GPIO硬件中断回调函数，增加软件防抖"""
-        now = time.time()
-        last = self.last_trigger_time.get(pin, 0.0)
-        debounce = self.debounce_ms.get(pin, 0)
-        if (now - last) * 1000 < debounce:
-            return
-        self.last_trigger_time[pin] = now
-
-        if pin in self.callbacks:
-            try:
-                self.callbacks[pin]()
-            except Exception as e:
-                print(f"GPIO {pin} 回调函数执行错误: {e}")
-
     def _start_monitor_thread(self):
-        """启动轮询监控线程（备用方案）"""
+        """启动轮询监控线程"""
         if self.monitor_thread and self.monitor_thread.is_alive():
             return
 
@@ -257,26 +240,44 @@ class GPIOController:
         self.monitor_thread.start()
 
     def _monitor_loop(self):
-        """轮询监控循环"""
+        """轮询监控循环，优化防抖机制：二次检测"""
         last_states = {}
+        pending_triggers = {}
         
         while not self.stop_flag.is_set():
+            current_time = time.time()
+            
             for pin in self.input_pins.keys():
                 if pin in self.callbacks:
                     current_state = self.read_input(pin)
                     last_state = last_states.get(pin, False)
+                    debounce = self.debounce_ms.get(pin, 0)
                     
-                    # 检测上升沿 + 防抖
+                    # 检测上升沿
                     if current_state and not last_state:
-                        now = time.time()
-                        last = self.last_trigger_time.get(pin, 0.0)
-                        debounce = self.debounce_ms.get(pin, 0)
-                        if (now - last) * 1000 >= debounce:
-                            self.last_trigger_time[pin] = now
-                            try:
-                                self.callbacks[pin]()
-                            except Exception as e:
-                                print(f"GPIO {pin} 回调函数执行错误: {e}")
+                        # 记录触发时间
+                        pending_triggers[pin] = current_time
+                    
+                    # 检测下降沿
+                    elif not current_state and last_state:
+                        # 如果有未处理的触发，清除它
+                        if pin in pending_triggers:
+                            del pending_triggers[pin]
+                    
+                    # 检查是否有需要二次检测的触发
+                    if pin in pending_triggers:
+                        trigger_time = pending_triggers[pin]
+                        if (current_time - trigger_time) * 1000 >= debounce:
+                            # 二次检测：再次确认状态
+                            if self.read_input(pin):
+                                # 状态仍然有效，执行回调
+                                try:
+                                    self.callbacks[pin]()
+                                    print(f"GPIO {pin} 触发回调，防抖时间: {debounce}ms")
+                                except Exception as e:
+                                    print(f"GPIO {pin} 回调函数执行错误: {e}")
+                            # 移除该触发
+                            del pending_triggers[pin]
                     
                     last_states[pin] = current_state
             

@@ -19,6 +19,8 @@ except ImportError:
 
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
+    # 默认循环运动次数
+    DEFAULT_CYCLE_COUNT = 10000
 
     def __init__(self, communication_mode: str):
         self.controller = LHandProController(communication_mode=communication_mode)
@@ -40,7 +42,9 @@ class MotionController:
         # 定义抓握位置
         self.grasp_positions = [
             [5000, 0, 0, 0, 0, 0],
+            [5000, 0, 10000, 10000, 10000, 10000],
             [5000, 10000, 10000, 10000, 10000, 10000],
+            [5000, 0, 10000, 10000, 10000, 10000],
         ]
         
         # 手套监听控制
@@ -139,7 +143,7 @@ class MotionController:
         
         # 移动到0位置
         print("正在移动到0位置...")
-        self.controller.move_to_zero(velocity=20000, max_current=800, wait_time=2.0)
+        self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
         print("✅ 已回到0位置")
         # 状态指示：待命 -> 绿色
         self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
@@ -198,7 +202,8 @@ class MotionController:
         print("🚀 开始循环运动")
         
         try:
-            while not self.stop_motion_flag.is_set():
+            cycle_count = 0
+            while not self.stop_motion_flag.is_set() and cycle_count < self.DEFAULT_CYCLE_COUNT:
                 for i, pos_list in enumerate(self.cycle_move_positions):
                     # 检查停止标志
                     if self.stop_motion_flag.is_set():
@@ -235,7 +240,11 @@ class MotionController:
                         print("⏹️ 运动被停止")
                         return
                 
-                print("🔄 准备下一个循环...")
+                cycle_count += 1
+                print(f"🔄 准备下一个循环... (已完成 {cycle_count}/{self.DEFAULT_CYCLE_COUNT})")
+            
+            if cycle_count >= self.DEFAULT_CYCLE_COUNT:
+                print(f"✅ 完成全部 {self.DEFAULT_CYCLE_COUNT} 次循环运动")
         
         except Exception as e:
             print(f"❌ 运动循环出错: {e}")
@@ -269,24 +278,52 @@ class MotionController:
         """开始抓握"""
         print("✅ 开始抓握")
         
-        for i in range(3):
-            if self.stop_motion_flag.is_set():
-                print("⏹️ 抓握被停止")
-                return
+        # 检查是否有循环运动在运行，如果有则先停止
+        with self.motion_lock:
+            if self.motion_running:
+                print("⏹️ 检测到循环运动正在运行，先停止循环运动")
+                self.stop_motion_flag.set()
+                time.sleep(0.5)
             
-            # 执行抓握位置
-            success = self.controller.move_to_positions(
-                positions=self.grasp_positions[i],
-                velocity=20000,
-                max_current=1000,
-                wait_time=2
-            )
+            # 清除停止标志，准备开始抓握
+            self.stop_motion_flag.clear()
             
-            if not success:
-                print(f"⚠️ 抓握位置 {i} 运动失败")
-                continue
+            # 设置抓握运动状态
+            self.motion_running = True
         
-        print("✅ 完成3次抓握")
+        try:
+            for i in range(3):
+                for i, pos_list in enumerate(self.grasp_positions):
+                    # 检查停止标志
+                    if self.stop_motion_flag.is_set():
+                        print("⏹️ 抓握被停止")
+                        return
+                    
+                    # 执行抓握位置
+                    success = self.controller.move_to_positions(
+                        positions=pos_list,
+                        velocity=20000,
+                        max_current=1000,
+                        wait_time=2
+                    )
+                    
+                    if not success:
+                        print(f"⚠️ 抓握位置 {i} 运动失败")
+                        continue
+            
+            print("✅ 完成3次抓握")
+                
+            # 移动到0位置
+            print("正在移动到0位置...")
+            self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
+            print("✅ 已回到0位置")
+            
+        finally:
+            # 确保无论如何都能重置运动状态
+            with self.motion_lock:
+                self.motion_running = False
+                # 保持stop_motion_flag的状态不变，以便外部可以知道是否是被停止的
+
 
     def start_glove_listening(self):
         """开始监听手套数据"""

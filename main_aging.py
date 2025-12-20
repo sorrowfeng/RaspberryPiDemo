@@ -116,7 +116,7 @@ class MotionController:
         
         # 移动到0位置
         print("正在移动到0位置...")
-        self.controller.move_to_zero(velocity=20000, max_current=800, wait_time=2.0)
+        self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
         print("✅ 已回到0位置")
         # 状态指示：待命 -> 绿色
         self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)

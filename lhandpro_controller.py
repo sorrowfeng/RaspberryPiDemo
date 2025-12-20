@@ -470,7 +470,7 @@ class LHandProController:
         self,
         positions_list: List[List[int]],
         velocity: int = 20000,
-        max_current: int = 800,
+        max_current: int = 1000,
         wait_time: float = 1.0
     ) -> bool:
         """
@@ -555,7 +555,7 @@ class LHandProController:
     def move_to_zero(
         self,
         velocity: int = 20000,
-        max_current: int = 800,
+        max_current: int = 1000,
         wait_time: float = 1.0
     ) -> bool:
         """
