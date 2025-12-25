@@ -21,7 +21,7 @@ except ImportError:
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
     # 默认循环运动次数
-    DEFAULT_CYCLE_COUNT = 9999999
+    DEFAULT_CYCLE_COUNT = 10000
 
     def __init__(self, communication_mode: str, device_index: int = None):
         self.controller = LHandProController(communication_mode=communication_mode)
@@ -35,13 +35,9 @@ class MotionController:
         
         # 定义循环运动位置序列
         self.cycle_move_positions = [
-            [10000, 0, 0, 0, 0, 0],
             [10000, 10000, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0],
-            [0, 0, 10000, 0, 0, 0],
-            [0, 0, 0, 10000, 0, 0],
-            [0, 0, 0, 0, 10000, 0],
-            [0, 0, 0, 0, 0, 10000],
+            [0, 0, 10000, 10000, 10000, 10000],
             [0, 0, 0, 0, 0, 0],
         ]
 
@@ -523,14 +519,14 @@ def main():
                       type=int, 
                       default=None, 
                       choices=[0, 1, 2, 3],
-                      help='设备索引（用于区分不同USB接口的设备，可选值：0、1、2、3，默认值：None）')
+                      help='设备索引（用于区分不同USB接口的设备，可选值：0、1、2、3）')
     
     # 添加通信模式参数
     parser.add_argument('--communication-mode', '-m',
                       type=str,
-                      default='CANFD',
+                      default='ECAT',
                       choices=['CANFD', 'ECAT'],
-                      help='设备通信模式（可选值：CANFD、ECAT，默认值：CANFD）')
+                      help='设备通信模式（可选值：CANFD、ECAT）')
     
     # 解析命令行参数
     args = parser.parse_args()
