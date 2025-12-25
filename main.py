@@ -7,6 +7,7 @@ import sys
 import time
 import threading
 import keyboard
+import argparse
 from lhandpro_controller import LHandProController
 from gpio_controller import GPIOController, GPIO_PINS, RGB_COLORS
 from udp_receiver import UDPReceiver
@@ -20,11 +21,12 @@ except ImportError:
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
     # 默认循环运动次数
-    DEFAULT_CYCLE_COUNT = 10000
+    DEFAULT_CYCLE_COUNT = 9999999
 
-    def __init__(self, communication_mode: str):
+    def __init__(self, communication_mode: str, device_index: int = None):
         self.controller = LHandProController(communication_mode=communication_mode)
         self.gpio = GPIOController()
+        self.device_index = device_index  # 存储设备索引
         
         # 运动控制标志
         self.motion_running = False
@@ -33,9 +35,13 @@ class MotionController:
         
         # 定义循环运动位置序列
         self.cycle_move_positions = [
+            [10000, 0, 0, 0, 0, 0],
             [10000, 10000, 0, 0, 0, 0],
             [0, 0, 0, 0, 0, 0],
-            [0, 0, 10000, 10000, 10000, 10000],
+            [0, 0, 10000, 0, 0, 0],
+            [0, 0, 0, 10000, 0, 0],
+            [0, 0, 0, 0, 10000, 0],
+            [0, 0, 0, 0, 0, 10000],
             [0, 0, 0, 0, 0, 0],
         ]
 
@@ -163,9 +169,15 @@ class MotionController:
             self.stop_motion_flag.set()
             self.motion_running = False
         
-        # 连接设备
-        if self.controller.connect():
-            print("✅ 设备连接成功")
+        # 自动连接设备并开始循环运动
+        print("🔍 正在尝试自动连接设备...")
+        if self.controller.connect(
+                enable_motors=True, 
+                home_motors=True, 
+                home_wait_time=5.0,
+                device_index=self.device_index, 
+                auto_select=self.device_index is None):
+            print("✅ 设备自动连接成功")
             self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
             self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
@@ -503,8 +515,31 @@ class MotionController:
 
 
 def main():
-    # 创建运动控制器实例，传入通信模式
-    motion_ctrl = MotionController(communication_mode="CANFD")
+    # 创建命令行参数解析器
+    parser = argparse.ArgumentParser(description='LHandPro GPIO控制程序')
+    
+    # 添加设备索引参数
+    parser.add_argument('--device-index', '-i', 
+                      type=int, 
+                      default=None, 
+                      choices=[0, 1, 2, 3],
+                      help='设备索引（用于区分不同USB接口的设备，可选值：0、1、2、3，默认值：None）')
+    
+    # 添加通信模式参数
+    parser.add_argument('--communication-mode', '-m',
+                      type=str,
+                      default='CANFD',
+                      choices=['CANFD', 'ECAT'],
+                      help='设备通信模式（可选值：CANFD、ECAT，默认值：CANFD）')
+    
+    # 解析命令行参数
+    args = parser.parse_args()
+    
+    # 创建运动控制器实例，传入通信模式和设备索引
+    motion_ctrl = MotionController(
+        communication_mode=args.communication_mode,
+        device_index=args.device_index
+    )
     return motion_ctrl.run()
 
 

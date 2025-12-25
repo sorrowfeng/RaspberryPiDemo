@@ -10,7 +10,7 @@ from lhandprolib_loader import (
     LER_NONE, LER_PARAMETER, LER_KEY_FUNC_UNINIT, LER_GET_CONFIGURATION,
     LER_DATA_ANOMALY, LER_COMM_CONNECT, LER_COMM_SEND, LER_COMM_RECV,
     LER_COMM_DATA_FORMAT, LER_INVALID_PATH, LER_LOG_SAVE_FAIL, LER_NOT_HOME, LER_UNKNOWN,
-    LAC_DOF_6, LAC_DOF_15,
+    LAC_DOF_6, LAC_DOF_6_S, LAC_DOF_15,
     LCN_ECAT, LCN_CANFD, LCN_RS485,
     LCM_POSITION, LCM_VELOCITY, LCM_TORQUE, LCM_VEL_TOR, LCM_POS_TOR, LCM_HOME,
     LST_STOPPED, LST_RUNNING, LST_ALARM, LST_POS_LIMIT, LST_NEG_LIMIT,
@@ -159,10 +159,10 @@ class PyLHandProLib:
         return bytes(data_buffer[:io_size.value]), io_size.value
 
     # 配置相关
-    def set_dof_type(self, dof_type: int) -> None:
-        """设置自由度类型"""
-        result = self._lib.lhandprolib_set_dof_type(self._handle, dof_type)
-        self._check_error(result, "设置自由度类型")
+    def set_hand_type(self, hand_type: int) -> None:
+        """设置手类型"""
+        result = self._lib.lhandprolib_set_hand_type(self._handle, hand_type)
+        self._check_error(result, "设置手类型")
 
     def get_dof(self) -> Tuple[int, int]:
         """获取自由度信息"""

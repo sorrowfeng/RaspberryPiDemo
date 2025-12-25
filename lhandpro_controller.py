@@ -6,7 +6,7 @@ LHandPro 控制器封装类 - 支持ECAT和CANFD双模式
 import time
 import threading
 from typing import Optional, List, Tuple
-from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD
+from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
 
 
@@ -119,8 +119,10 @@ class LHandProController:
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
             
+            retn = False
+
             if self.communication_mode == "CANFD":
-                return self._connect_canfd(
+                retn = self._connect_canfd(
                     enable_motors=enable_motors,
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
@@ -130,15 +132,18 @@ class LHandProController:
                     auto_select=auto_select
                 )
             elif self.communication_mode == "ECAT":
-                # ECAT模式仍然保留原来的参数传递方式
-                return self._connect_ecat(
+                retn = self._connect_ecat(
                     enable_motors=enable_motors,
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
                     channel_index=device_index, 
                     auto_select=auto_select
                 )
-            
+
+            self.lhp.set_hand_type(LAC_DOF_6_S)
+
+            return retn
+        
         except (LHandProLibError, Exception) as e:
             print(f"操作失败: {e}")
             if self.lhp:
@@ -297,6 +302,7 @@ class LHandProController:
             return False
 
         print("连接成功")
+        self.is_connected = True
 
         if not self.ec_master.start():
             print("启动设备失败")
