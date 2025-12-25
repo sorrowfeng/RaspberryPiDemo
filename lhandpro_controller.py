@@ -10,6 +10,11 @@ from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, L
 from canfd_lib import CANFD
 
 
+# 手型类型宏定义 - 可在此处切换手型类型
+# 可选值: LAC_DOF_6 或 LAC_DOF_6_S
+CURRENT_HAND_TYPE = LAC_DOF_6
+
+
 class LHandProController:
     """LHandPro 控制器封装类 - 支持ECAT和CANFD双模式"""
 
@@ -140,7 +145,7 @@ class LHandProController:
                     auto_select=auto_select
                 )
 
-            self.lhp.set_hand_type(LAC_DOF_6_S)
+            self.lhp.set_hand_type(CURRENT_HAND_TYPE)
 
             return retn
         
