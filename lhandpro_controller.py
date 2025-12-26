@@ -213,13 +213,9 @@ class LHandProController:
                 return False
             print(f"使用指定设备索引: {device_index}")
         
-        # 通道固定为0
-        channel_index = 0
-        print(f"使用固定通道索引: {channel_index}")
-        
         # 连接CANFD设备
         print(f"正在连接CANFD设备，标称波特率: {canfd_nom_baudrate}bps，数据波特率: {canfd_dat_baudrate}bps")
-        if not self.canfd.connect(device_index=device_index, channel_index=channel_index, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
+        if not self.canfd.connect(device_index=device_index, channel_index=0, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
             print("CANFD设备连接失败")
             self.lhp.close()
             self.lhp = None

@@ -23,7 +23,8 @@ def launch_device(device_index: int):
         "python3",
         "main.py",
         f"--device-index={device_index}",
-        "--communication-mode=CANFD"
+        "--communication-mode=CANFD",
+        "--no-enable-gpio"
     ]
     
     try:
