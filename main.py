@@ -120,7 +120,7 @@ class MotionController:
             self.stop_motion_flag.clear()
         
         if self.enable_gpio:
-            # 状态指示：运行中 -> 蓝色
+            # 状态指示：运行中
             self.gpio.output_high(GPIO_PINS.RUNNING_STATUS)
             self.gpio.output_low(GPIO_PINS.READY_STATUS)
         
@@ -149,7 +149,7 @@ class MotionController:
         self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
         print("✅ 已回到0位置")
         if self.enable_gpio:
-            # 状态指示：待命 -> 绿色
+            # 状态指示：待命
             self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             self.gpio.output_high(GPIO_PINS.READY_STATUS)
 
@@ -168,7 +168,6 @@ class MotionController:
         
         # 自动连接设备并开始循环运动
         print("🔍 正在尝试自动连接设备...")
-        print("device_index:", self.device_index)
         if self.controller.connect(
                 enable_motors=True, 
                 home_motors=True, 
@@ -258,7 +257,7 @@ class MotionController:
             with self.motion_lock:
                 self.motion_running = False
             if ENABLE_GPIO:
-                # 状态指示：待命 -> 绿色
+                # 状态指示：待命
                 self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
                 self.gpio.output_high(GPIO_PINS.READY_STATUS)
             print("🏁 循环运动结束")
