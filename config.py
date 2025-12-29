@@ -18,3 +18,10 @@ DEFAULT_CYCLE_VELOCITY = 20000
 DEFAULT_CYCLE_INTERVAL = 0.6
 # 默认循环运动最大电流
 DEFAULT_CYCLE_CURRENT = 1000
+# 循环运动位置序列
+CYCLE_MOVE_POSITIONS = [
+    [10000, 10000, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0],
+    [0, 0, 10000, 10000, 10000, 10000],
+    [0, 0, 0, 0, 0, 0],
+]

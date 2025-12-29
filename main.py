@@ -16,7 +16,8 @@ from config import (
     DEFAULT_CYCLE_COUNT,
     DEFAULT_CYCLE_VELOCITY,
     DEFAULT_CYCLE_INTERVAL,
-    DEFAULT_CYCLE_CURRENT
+    DEFAULT_CYCLE_CURRENT,
+    CYCLE_MOVE_POSITIONS
 )
 try:
     import RPi.GPIO as GPIO
@@ -40,12 +41,7 @@ class MotionController:
         self.stop_motion_flag = threading.Event()
         
         # 定义循环运动位置序列
-        self.cycle_move_positions = [
-            [10000, 10000, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 10000, 10000, 10000, 10000],
-            [0, 0, 0, 0, 0, 0],
-        ]
+        self.cycle_move_positions = CYCLE_MOVE_POSITIONS
 
         # 定义抓握位置
         self.grasp_positions = [
