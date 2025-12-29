@@ -9,24 +9,31 @@ import threading
 import keyboard
 import argparse
 from lhandpro_controller import LHandProController
-from gpio_controller import GPIOController, GPIO_PINS, RGB_COLORS
+from gpio_controller import GPIOController, GPIO_PINS
 from udp_receiver import UDPReceiver
 from udp_receiver import SimpleGloveData
+from config import (
+    DEFAULT_CYCLE_COUNT,
+    DEFAULT_CYCLE_VELOCITY,
+    DEFAULT_CYCLE_INTERVAL,
+    DEFAULT_CYCLE_CURRENT,
+    CYCLE_MOVE_POSITIONS
+)
 try:
     import RPi.GPIO as GPIO
 except ImportError:
     GPIO = None
 
 
+
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
-    # 默认循环运动次数
-    DEFAULT_CYCLE_COUNT = 10000
 
-    def __init__(self, communication_mode: str, device_index: int = None):
+    def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
         self.controller = LHandProController(communication_mode=communication_mode)
         self.gpio = GPIOController()
         self.device_index = device_index  # 存储设备索引
+        self.enable_gpio = enable_gpio  # 保存GPIO启用状态
         
         # 运动控制标志
         self.motion_running = False
@@ -34,12 +41,7 @@ class MotionController:
         self.stop_motion_flag = threading.Event()
         
         # 定义循环运动位置序列
-        self.cycle_move_positions = [
-            [10000, 10000, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0],
-            [0, 0, 10000, 10000, 10000, 10000],
-            [0, 0, 0, 0, 0, 0],
-        ]
+        self.cycle_move_positions = CYCLE_MOVE_POSITIONS
 
         # 定义抓握位置
         self.grasp_positions = [
@@ -56,6 +58,9 @@ class MotionController:
 
     def setup_gpio(self):
         """设置GPIO引脚和回调函数"""
+        if not self.enable_gpio:
+            return
+
         # 设置输入引脚
         if GPIO is None:
             raise RuntimeError("RPi.GPIO 未安装")
@@ -96,10 +101,6 @@ class MotionController:
         self.gpio.setup_output(GPIO_PINS.STATUS_LED, initial=False)
         self.gpio.setup_output(GPIO_PINS.READY_STATUS, initial=False)
         self.gpio.setup_output(GPIO_PINS.RUNNING_STATUS, initial=False)
-        # RGB 用于状态显示（使用硬件PWM）
-        self.gpio.setup_rgb_pwm(GPIO_PINS.RGB_R, GPIO_PINS.RGB_G, GPIO_PINS.RGB_B, freq=1000)
-        # 初始状态：断开/未就绪 -> 黄色
-        self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
         
         print("✅ GPIO设置完成")
 
@@ -118,10 +119,10 @@ class MotionController:
             self.motion_running = True
             self.stop_motion_flag.clear()
         
-        # 状态指示：运行中 -> 蓝色
-        self.gpio.output_high(GPIO_PINS.RUNNING_STATUS)
-        self.gpio.output_low(GPIO_PINS.READY_STATUS)
-        self.gpio.set_rgb_color(*RGB_COLORS.BLUE)
+        if self.enable_gpio:
+            # 状态指示：运行中
+            self.gpio.output_high(GPIO_PINS.RUNNING_STATUS)
+            self.gpio.output_low(GPIO_PINS.READY_STATUS)
         
         # 在单独线程中执行运动
         motion_thread = threading.Thread(target=self._run_motion_cycle, daemon=True)
@@ -147,10 +148,10 @@ class MotionController:
         print("正在移动到0位置...")
         self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
         print("✅ 已回到0位置")
-        # 状态指示：待命 -> 绿色
-        self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-        self.gpio.output_high(GPIO_PINS.READY_STATUS)
-        self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
+        if self.enable_gpio:
+            # 状态指示：待命
+            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
+            self.gpio.output_high(GPIO_PINS.READY_STATUS)
 
     def on_connect_device(self):
         """连接设备回调"""
@@ -174,18 +175,16 @@ class MotionController:
                 device_index=self.device_index, 
                 auto_select=self.device_index is None):
             print("✅ 设备自动连接成功")
-            self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
-            self.gpio.output_high(GPIO_PINS.READY_STATUS)
-            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            # RGB 显示绿色（就绪）
-            self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
+            if self.enable_gpio:
+                self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
+                self.gpio.output_high(GPIO_PINS.READY_STATUS)
+                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
         else:
             print("❌ 设备连接失败")
-            self.gpio.output_low(GPIO_PINS.STATUS_LED)
-            self.gpio.output_low(GPIO_PINS.READY_STATUS)
-            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            # RGB 显示黄色（失败/未连接）
-            self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
+            if self.enable_gpio:
+                self.gpio.output_low(GPIO_PINS.STATUS_LED)
+                self.gpio.output_low(GPIO_PINS.READY_STATUS)
+                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
 
     def on_disconnect_device(self):
         """断开设备回调"""
@@ -198,11 +197,10 @@ class MotionController:
         
         # 断开连接
         self.controller.disconnect()
-        self.gpio.output_low(GPIO_PINS.STATUS_LED)  # 状态LED熄灭
-        self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-        self.gpio.output_low(GPIO_PINS.READY_STATUS)
-        # RGB 显示黄色（断开）
-        self.gpio.set_rgb_color(*RGB_COLORS.YELLOW)
+        if self.enable_gpio:
+            self.gpio.output_low(GPIO_PINS.STATUS_LED)  # 状态LED熄灭
+            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
+            self.gpio.output_low(GPIO_PINS.READY_STATUS)
         print("✅ 设备已断开")
 
     def _run_motion_cycle(self):
@@ -211,7 +209,8 @@ class MotionController:
         
         try:
             cycle_count = 0
-            while not self.stop_motion_flag.is_set() and cycle_count < self.DEFAULT_CYCLE_COUNT:
+            while not self.stop_motion_flag.is_set() and cycle_count < DEFAULT_CYCLE_COUNT:
+                # 遍历循环位置
                 for i, pos_list in enumerate(self.cycle_move_positions):
                     # 检查停止标志
                     if self.stop_motion_flag.is_set():
@@ -221,16 +220,14 @@ class MotionController:
                     # 运动前检查报警
                     if self.controller.get_alarm():
                         print("⚠️ 检测到报警，停止运动循环")
-                        # 报警状态指示：红色
-                        self.gpio.set_rgb_color(*RGB_COLORS.RED)
                         return
                     
                     # 执行运动
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=20000,
-                        max_current=1000,
-                        wait_time=0.6
+                        velocity=DEFAULT_CYCLE_VELOCITY,
+                        max_current=DEFAULT_CYCLE_CURRENT,
+                        wait_time=DEFAULT_CYCLE_INTERVAL
                     )
                     
                     if not success:
@@ -241,7 +238,8 @@ class MotionController:
                     if i == len(self.cycle_move_positions) - 1:
                         # 完成一个循环，输出脉冲信号
                         print("✅ 完成一个循环，输出完成信号")
-                        self.gpio.output_pulse(GPIO_PINS.CYCLE_COMPLETE, duration=0.5)
+                        if self.enable_gpio:
+                            self.gpio.output_pulse(GPIO_PINS.CYCLE_COMPLETE, duration=0.5)
                     
                     # 再次检查停止标志
                     if self.stop_motion_flag.is_set():
@@ -249,20 +247,20 @@ class MotionController:
                         return
                 
                 cycle_count += 1
-                print(f"🔄 准备下一个循环... (已完成 {cycle_count}/{self.DEFAULT_CYCLE_COUNT})")
+                print(f"🔄 准备下一个循环... (已完成 {cycle_count}/{DEFAULT_CYCLE_COUNT})")
             
-            if cycle_count >= self.DEFAULT_CYCLE_COUNT:
-                print(f"✅ 完成全部 {self.DEFAULT_CYCLE_COUNT} 次循环运动")
-        
+            if cycle_count >= DEFAULT_CYCLE_COUNT:
+                print(f"✅ 完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
+            
         except Exception as e:
             print(f"❌ 运动循环出错: {e}")
         finally:
             with self.motion_lock:
                 self.motion_running = False
-            # 状态指示：待命 -> 绿色
-            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            self.gpio.output_high(GPIO_PINS.READY_STATUS)
-            self.gpio.set_rgb_color(*RGB_COLORS.GREEN)
+            if self.enable_gpio:
+                # 状态指示：待命
+                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
+                self.gpio.output_high(GPIO_PINS.READY_STATUS)
             print("🏁 循环运动结束")
     
     def on_start_glove_listen(self):
@@ -310,8 +308,8 @@ class MotionController:
                     # 执行抓握位置
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=20000,
-                        max_current=1000,
+                        velocity=DEFAULT_CYCLE_VELOCITY,
+                        max_current=DEFAULT_CYCLE_CURRENT,
                         wait_time=2
                     )
                     
@@ -336,9 +334,6 @@ class MotionController:
     def start_glove_listening(self):
         """开始监听手套数据"""
         print("🎧 开始监听手套数据")
-        
-        # 状态指示：手套监听中 -> 青色
-        self.gpio.set_rgb_color(*RGB_COLORS.CYAN)
         
         # 创建并启动UDP接收器
         try:
@@ -456,24 +451,31 @@ class MotionController:
         
         # 自动连接设备并开始循环运动
         print("🔍 正在尝试自动连接设备...")
-        if self.controller.connect():
+        if self.controller.connect(
+                enable_motors=True,
+                home_motors=True,
+                home_wait_time=5.0,
+                device_index=self.device_index,
+                auto_select=self.device_index is None):
             print("✅ 设备自动连接成功")
-            self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
-            self.gpio.output_high(GPIO_PINS.READY_STATUS)
-            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            # RGB 显示绿色（就绪）
-            self.gpio.set_rgb_color(0, 255, 0)
+            if self.enable_gpio:
+                self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
+                self.gpio.output_high(GPIO_PINS.READY_STATUS)
+                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             
             # 自动开始循环运动
             print("🚀 自动开始执行循环运动")
             self.on_start_motion()
         else:
             print("❌ 设备自动连接失败")
-            self.gpio.output_low(GPIO_PINS.STATUS_LED)
-            self.gpio.output_low(GPIO_PINS.READY_STATUS)
-            self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            # RGB 显示黄色（失败/未连接）
-            self.gpio.set_rgb_color(255, 255, 0)
+            
+            if self.enable_gpio:
+                self.gpio.output_low(GPIO_PINS.STATUS_LED)
+                self.gpio.output_low(GPIO_PINS.READY_STATUS)
+                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
+            else:
+                print("❌ 设备自动连接失败，程序退出")
+                return -1
         
         try:
             # 主循环，等待用户退出
@@ -503,7 +505,8 @@ class MotionController:
                 self.controller.disconnect()
             
             # 清理GPIO
-            self.gpio.cleanup()
+            if self.enable_gpio:
+                self.gpio.cleanup()
             
             print("✅ 资源清理完成")
         
@@ -528,13 +531,24 @@ def main():
                       choices=['CANFD', 'ECAT'],
                       help='设备通信模式（可选值：CANFD、ECAT）')
     
+    # 添加GPIO启用参数
+    parser.add_argument('--enable-gpio', '-g',
+                      action='store_true',
+                      default=True,
+                      help='启用GPIO控制（默认：True）')
+    parser.add_argument('--no-enable-gpio',
+                      action='store_false',
+                      dest='enable_gpio',
+                      help='禁用GPIO控制')
+    
     # 解析命令行参数
     args = parser.parse_args()
     
-    # 创建运动控制器实例，传入通信模式和设备索引
+    # 创建运动控制器实例，传入通信模式、设备索引和GPIO启用状态
     motion_ctrl = MotionController(
         communication_mode=args.communication_mode,
-        device_index=args.device_index
+        device_index=args.device_index,
+        enable_gpio=args.enable_gpio
     )
     return motion_ctrl.run()
 

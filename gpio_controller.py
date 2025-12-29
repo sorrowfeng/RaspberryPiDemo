@@ -122,50 +122,6 @@ class GPIOController:
         self.output_pins[pin] = initial
         print(f"GPIO {pin} 设置为输出，初始状态: {'HIGH' if initial else 'LOW'}")
 
-    # ---------------- RGB PWM 输出 ----------------
-    def setup_rgb_pwm(self, r_pin: int, g_pin: int, b_pin: int, freq: int = 1000):
-        """
-        设置RGB三色PWM输出
-
-        Args:
-            r_pin: 红色通道GPIO
-            g_pin: 绿色通道GPIO
-            b_pin: 蓝色通道GPIO
-            freq: PWM频率，默认1000Hz
-        """
-        # 初始化引脚
-        for pin in (r_pin, g_pin, b_pin):
-            GPIO.setup(pin, GPIO.OUT)
-            GPIO.output(pin, GPIO.LOW)
-
-        r_pwm = GPIO.PWM(r_pin, freq)
-        g_pwm = GPIO.PWM(g_pin, freq)
-        b_pwm = GPIO.PWM(b_pin, freq)
-
-        r_pwm.start(0)
-        g_pwm.start(0)
-        b_pwm.start(0)
-
-        self.rgb_pwm = (r_pwm, g_pwm, b_pwm)
-        self.rgb_pins = (r_pin, g_pin, b_pin)
-        print(f"RGB PWM 已启动: R={r_pin}, G={g_pin}, B={b_pin}, freq={freq}Hz")
-
-    def set_rgb_color(self, r: int, g: int, b: int):
-        """
-        设置RGB颜色，0-255
-        """
-        if not self.rgb_pwm:
-            print("RGB PWM 未初始化")
-            return
-        r_pwm, g_pwm, b_pwm = self.rgb_pwm
-        r_pwm.ChangeDutyCycle(max(0, min(100, r / 255 * 100)))
-        g_pwm.ChangeDutyCycle(max(0, min(100, g / 255 * 100)))
-        b_pwm.ChangeDutyCycle(max(0, min(100, b / 255 * 100)))
-
-    def set_rgb_off(self):
-        """关闭RGB"""
-        self.set_rgb_color(0, 0, 0)
-
     def output_high(self, pin: int, duration: Optional[float] = None):
         """
         输出高电平
@@ -326,24 +282,6 @@ class GPIOController:
         self.cleanup()
         return False
 
-
-# RGB颜色宏定义
-class RGB_COLORS:
-    """
-    RGB颜色宏定义类
-    用于标准化状态指示灯的颜色表示
-    颜色值范围: 0-255
-    """
-    # 基本颜色
-    RED = (255, 0, 0)            # 红色 - 报警、错误状态
-    GREEN = (0, 255, 0)          # 绿色 - 就绪、完成、成功状态
-    BLUE = (0, 0, 255)           # 蓝色 - 运行中状态
-    YELLOW = (255, 255, 0)       # 黄色 - 未连接、断开、失败状态
-    CYAN = (0, 255, 255)         # 青色 - 手套监听状态
-    WHITE = (255, 255, 255)      # 白色 - 通用状态
-    OFF = (0, 0, 0)              # 关闭 - 熄灭状态
-
-
 # GPIO引脚定义（使用常规GPIO，避开复用功能引脚）
 class GPIO_PINS:
     """
@@ -365,9 +303,6 @@ class GPIO_PINS:
     - GPIO 6  (物理引脚31) - 常规GPIO
     - GPIO 24 (物理引脚18) - 常规GPIO
     - GPIO 25 (物理引脚22) - 常规GPIO
-    - GPIO 12 (物理引脚32) - 硬件PWM
-    - GPIO 13 (物理引脚33) - 硬件PWM
-    - GPIO 19 (物理引脚35) - 硬件PWM
     """
     # 输入引脚定义（常规GPIO，无复用功能）
     START_MOTION = 17     # 开始循环运动 (物理引脚11)
@@ -382,7 +317,4 @@ class GPIO_PINS:
     RUNNING_STATUS = 6    # 循环运行中状态 (物理引脚31)
     CYCLE_COMPLETE = 24   # 循环完成信号输出 (物理引脚18)
     STATUS_LED = 25       # 连接状态LED输出 (物理引脚22)
-    RGB_R = 12            # RGB 红 (物理引脚32，PWM)
-    RGB_G = 13            # RGB 绿 (物理引脚33，PWM)
-    RGB_B = 19            # RGB 蓝 (物理引脚35，PWM)
 
