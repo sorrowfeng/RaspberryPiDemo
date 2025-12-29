@@ -12,6 +12,12 @@ from lhandpro_controller import LHandProController
 from gpio_controller import GPIOController, GPIO_PINS
 from udp_receiver import UDPReceiver
 from udp_receiver import SimpleGloveData
+from config import (
+    DEFAULT_CYCLE_COUNT,
+    DEFAULT_CYCLE_VELOCITY,
+    DEFAULT_CYCLE_INTERVAL,
+    DEFAULT_CYCLE_CURRENT
+)
 try:
     import RPi.GPIO as GPIO
 except ImportError:
@@ -21,11 +27,6 @@ except ImportError:
 
 class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
-    # 默认循环运动次数
-    DEFAULT_CYCLE_COUNT = 10000
-    DEFAULT_CYCLE_VELOCITY = 20000
-    DEFAULT_CYCLE_INTERVAL = 0.6
-    DEFAULT_CYCLE_CURRENT = 1000
 
     def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
         self.controller = LHandProController(communication_mode=communication_mode)
@@ -212,7 +213,8 @@ class MotionController:
         
         try:
             cycle_count = 0
-            while not self.stop_motion_flag.is_set() and cycle_count < self.DEFAULT_CYCLE_COUNT:
+            while not self.stop_motion_flag.is_set() and cycle_count < DEFAULT_CYCLE_COUNT:
+                # 遍历循环位置
                 for i, pos_list in enumerate(self.cycle_move_positions):
                     # 检查停止标志
                     if self.stop_motion_flag.is_set():
@@ -227,9 +229,9 @@ class MotionController:
                     # 执行运动
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=self.DEFAULT_CYCLE_VELOCITY,
-                        max_current=self.DEFAULT_CYCLE_CURRENT,
-                        wait_time=self.DEFAULT_CYCLE_INTERVAL
+                        velocity=DEFAULT_CYCLE_VELOCITY,
+                        max_current=DEFAULT_CYCLE_CURRENT,
+                        wait_time=DEFAULT_CYCLE_INTERVAL
                     )
                     
                     if not success:
@@ -249,17 +251,17 @@ class MotionController:
                         return
                 
                 cycle_count += 1
-                print(f"🔄 准备下一个循环... (已完成 {cycle_count}/{self.DEFAULT_CYCLE_COUNT})")
+                print(f"🔄 准备下一个循环... (已完成 {cycle_count}/{DEFAULT_CYCLE_COUNT})")
             
-            if cycle_count >= self.DEFAULT_CYCLE_COUNT:
-                print(f"✅ 完成全部 {self.DEFAULT_CYCLE_COUNT} 次循环运动")
-        
+            if cycle_count >= DEFAULT_CYCLE_COUNT:
+                print(f"✅ 完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
+            
         except Exception as e:
             print(f"❌ 运动循环出错: {e}")
         finally:
             with self.motion_lock:
                 self.motion_running = False
-            if ENABLE_GPIO:
+            if self.enable_gpio:
                 # 状态指示：待命
                 self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
                 self.gpio.output_high(GPIO_PINS.READY_STATUS)
@@ -310,8 +312,8 @@ class MotionController:
                     # 执行抓握位置
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=self.DEFAULT_CYCLE_VELOCITY,
-                        max_current=self.DEFAULT_CYCLE_CURRENT,
+                        velocity=DEFAULT_CYCLE_VELOCITY,
+                        max_current=DEFAULT_CYCLE_CURRENT,
                         wait_time=2
                     )
                     

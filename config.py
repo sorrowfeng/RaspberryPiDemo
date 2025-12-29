@@ -1,0 +1,20 @@
+"""
+配置文件 - 集中管理所有可配置参数
+"""
+
+# 手型类型配置 - lhandpro_controller.py
+from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
+
+# 可选值: LAC_DOF_6 或 LAC_DOF_6_S
+CURRENT_HAND_TYPE = LAC_DOF_6
+
+
+# 循环运动配置 - main.py
+# 默认循环运动次数
+DEFAULT_CYCLE_COUNT = 10000
+# 默认循环运动速度
+DEFAULT_CYCLE_VELOCITY = 20000
+# 默认循环运动间隔（秒）
+DEFAULT_CYCLE_INTERVAL = 0.6
+# 默认循环运动最大电流
+DEFAULT_CYCLE_CURRENT = 1000

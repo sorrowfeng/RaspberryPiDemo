@@ -8,11 +8,7 @@ import threading
 from typing import Optional, List, Tuple
 from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
-
-
-# 手型类型宏定义 - 可在此处切换手型类型
-# 可选值: LAC_DOF_6 或 LAC_DOF_6_S
-CURRENT_HAND_TYPE = LAC_DOF_6
+from config import CURRENT_HAND_TYPE
 
 
 class LHandProController:
