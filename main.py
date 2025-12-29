@@ -23,6 +23,9 @@ class MotionController:
     """运动控制器，集成GPIO和LHandPro控制"""
     # 默认循环运动次数
     DEFAULT_CYCLE_COUNT = 10000
+    DEFAULT_CYCLE_VELOCITY = 20000
+    DEFAULT_CYCLE_INTERVAL = 0.6
+    DEFAULT_CYCLE_CURRENT = 1000
 
     def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
         self.controller = LHandProController(communication_mode=communication_mode)
@@ -224,9 +227,9 @@ class MotionController:
                     # 执行运动
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=20000,
-                        max_current=1000,
-                        wait_time=0.6
+                        velocity=self.DEFAULT_CYCLE_VELOCITY,
+                        max_current=self.DEFAULT_CYCLE_CURRENT,
+                        wait_time=self.DEFAULT_CYCLE_INTERVAL
                     )
                     
                     if not success:
@@ -307,8 +310,8 @@ class MotionController:
                     # 执行抓握位置
                     success = self.controller.move_to_positions(
                         positions=pos_list,
-                        velocity=20000,
-                        max_current=1000,
+                        velocity=self.DEFAULT_CYCLE_VELOCITY,
+                        max_current=self.DEFAULT_CYCLE_CURRENT,
                         wait_time=2
                     )
                     
