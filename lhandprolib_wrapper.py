@@ -184,6 +184,11 @@ class PyLHandProLib:
         self._check_error(result, "获取手部方向")
         return direction.value
 
+    def set_move_no_home(self, move_no_home: int) -> None:
+        """设置是否不回零"""
+        result = self._lib.lhandprolib_set_move_no_home(self._handle, move_no_home)
+        self._check_error(result, "设置是否不回零")
+
     # 电机控制
     def set_control_mode(self, motor_id: int, mode: int) -> None:
         """设置控制模式"""

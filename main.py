@@ -13,6 +13,7 @@ from gpio_controller import GPIOController, GPIO_PINS
 from udp_receiver import UDPReceiver
 from udp_receiver import SimpleGloveData
 from config import (
+    DEFAULT_HOME_TIME,
     DEFAULT_CYCLE_COUNT,
     DEFAULT_CYCLE_VELOCITY,
     DEFAULT_CYCLE_INTERVAL,
@@ -171,7 +172,7 @@ class MotionController:
         if self.controller.connect(
                 enable_motors=True, 
                 home_motors=True, 
-                home_wait_time=5.0,
+                home_wait_time=DEFAULT_HOME_TIME,
                 device_index=self.device_index, 
                 auto_select=self.device_index is None):
             print("✅ 设备自动连接成功")
@@ -454,7 +455,7 @@ class MotionController:
         if self.controller.connect(
                 enable_motors=True,
                 home_motors=True,
-                home_wait_time=5.0,
+                home_wait_time=DEFAULT_HOME_TIME,
                 device_index=self.device_index,
                 auto_select=self.device_index is None):
             print("✅ 设备自动连接成功")
