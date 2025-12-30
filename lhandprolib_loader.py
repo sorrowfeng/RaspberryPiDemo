@@ -186,6 +186,9 @@ class LHandProLibLoader:
         self._lib.lhandprolib_get_hand_direction.restype = c_int
         self._lib.lhandprolib_get_hand_direction.argtypes = [c_void_p, POINTER(c_int)]
 
+        self._lib.lhandprolib_set_move_no_home.restype = c_int
+        self._lib.lhandprolib_set_move_no_home.argtypes = [c_void_p, c_int]
+
         # 电机控制相关函数
         self._define_motor_control_prototypes()
         # 目标设置相关函数
