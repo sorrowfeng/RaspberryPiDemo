@@ -10,6 +10,8 @@ CURRENT_HAND_TYPE = LAC_DOF_6
 
 
 # 循环运动配置 - main.py
+# 默认回零时间（秒）
+DEFAULT_HOME_TIME = 5
 # 默认循环运动次数
 DEFAULT_CYCLE_COUNT = 10000
 # 默认循环运动速度
