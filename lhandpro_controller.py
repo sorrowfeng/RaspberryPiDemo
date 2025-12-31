@@ -142,6 +142,7 @@ class LHandProController:
                 )
 
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
+            self.lhp.set_move_no_home(1)
 
             return retn
         
