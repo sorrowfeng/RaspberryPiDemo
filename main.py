@@ -222,8 +222,8 @@ class MotionController:
                     
                     # 运动前检查报警
                     if self.controller.get_alarm():
-                        logging.warning("⚠️ 检测到报警，停止运动循环")
-                        return
+                        logging.warning("⚠️ 检测到报警")
+                        continue
                     
                     # 执行运动
                     success = self.controller.move_to_positions(
