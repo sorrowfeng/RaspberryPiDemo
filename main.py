@@ -20,7 +20,8 @@ from config import (
     DEFAULT_CYCLE_VELOCITY,
     DEFAULT_CYCLE_INTERVAL,
     DEFAULT_CYCLE_CURRENT,
-    CYCLE_MOVE_POSITIONS
+    CYCLE_MOVE_POSITIONS,
+    CYCLE_FINISH_POSITION
 )
 try:
     import RPi.GPIO as GPIO
@@ -221,9 +222,9 @@ class MotionController:
                         return
                     
                     # 运动前检查报警
-                    # if self.controller.get_alarm():
-                    #     logging.warning("⚠️ 检测到报警")
-                    #     continue
+                    if self.controller.get_alarm():
+                        logging.warning("⚠️ 检测到报警, 运动停止")
+                        return
                     
                     # 执行运动
                     success = self.controller.move_to_positions(
@@ -253,6 +254,13 @@ class MotionController:
                 logging.info(f"🔄 准备下一个循环... (已完成 {cycle_count}/{DEFAULT_CYCLE_COUNT})")
             
             if cycle_count >= DEFAULT_CYCLE_COUNT:
+                # 运动结束后，移动到结束位置
+                success = self.controller.move_to_positions(
+                    positions=CYCLE_FINISH_POSITION,
+                    velocity=DEFAULT_CYCLE_VELOCITY,
+                    max_current=DEFAULT_CYCLE_CURRENT,
+                    wait_time=DEFAULT_CYCLE_INTERVAL
+                )
                 logging.info(f"✅ 完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
             
         except Exception as e:
