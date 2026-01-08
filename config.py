@@ -32,3 +32,6 @@ CYCLE_FINISH_POSITION = [2500, 5000, 5000, 0, 0, 0]
 
 # 是否启用循环时的报警检测
 ENABLE_ALARM_CHECK = True
+
+# 是否启用回零完成检测
+ENABLE_HOME_CHECK = False

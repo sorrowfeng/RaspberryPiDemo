@@ -8,7 +8,7 @@ import threading
 from typing import Optional, List, Tuple
 from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
-from config import CURRENT_HAND_TYPE
+from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK
 
 
 class LHandProController:
@@ -142,7 +142,11 @@ class LHandProController:
                 )
 
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
-            self.lhp.set_move_no_home(1)
+
+            if ENABLE_HOME_CHECK:
+                self.lhp.set_move_no_home(0)
+            else:
+                self.lhp.set_move_no_home(1)    
 
             return retn
         
