@@ -1,24 +1,237 @@
 # LHandProLib Python 示例项目
 
-## 项目概述
+## 项目简介
 
-LHandProLib Python 示例项目是一个基于树莓派的灵巧手演示项目，集成了 CANFD 通信、EtherCAT 通信、GPIO 硬件控制和手套数据监听功能。该项目提供了简洁易用的接口，允许用户通过 GPIO 按钮或程序控制灵巧手的运动，同时支持通过 UDP 接收手套数据进行实时监控。
+这是一个基于 LHandProLib 库的 Python 控制示例项目，专为树莓派环境设计，提供了 LHandPro 灵巧手的全面控制解决方案。
 
-## 主要功能特性
+- **双通信模式支持**：同时支持 CANFD 和 EtherCAT 通信协议
+- **树莓派 GPIO 集成**：通过 GPIO 引脚实现硬件触发控制
+- **多功能运动控制**：支持循环运动、抓握动作、手套数据实时控制
+- **自动化操作**：自动连接设备、回零、故障检测等功能
 
-### 核心功能
-- **双通信模式支持**: 同时支持 CANFD 和 EtherCAT 两种通信方式
-- **GPIO 硬件控制**: 支持通过树莓派 GPIO 引脚触发各种操作
-- **手套数据监听**: 通过 UDP 实时接收和处理手套角度数据
-- **多任务并行**: 支持同时运行灵巧手运动和手套数据监听
-- **状态反馈**: 通过 LED、RGB 灯和 GPIO 输出提供直观的状态指示
+## 项目结构
 
-### 具体功能
-1. **设备连接管理**: 自动连接和断开 LHandPro 设备，支持多设备选择
-2. **循环运动控制**: 执行预设的位置序列循环运动
-3. **实时状态监控**: 监控设备连接状态、运动状态和手套数据
-4. **安全保障**: 支持紧急停止和报警处理
-5. **测试工具**: 提供 GPIO 测试、手套数据测试和功能测试工具
+```
+RaspberryPiDemo/
+├── configs/                # 配置文件目录
+│   ├── config_DH116S_CANFD_exhibit.py
+│   ├── config_DH116_CANFD_aging.py
+│   ├── config_DH116_ECAT_aging.py
+│   └── config_Module_ECAT_aging.py
+├── launch.py                 # 启动文件
+├── main.py                 # 主函数文件
+├── lhandpro_controller.py  # LHandPro 控制器核心类
+├── canfd_lib.py            # CANFD 通信库
+├── ethercat_master.py      # EtherCAT 通信库
+├── gpio_controller.py      # GPIO 控制器
+├── udp_receiver.py         # UDP 数据接收器（手套控制）
+├── config.py               # 通用配置
+├── log.py                  # 日志配置
+├── requirements.txt        # 依赖项
+└── README.md               # 项目说明
+```
+
+## 主要功能
+
+### 1. 双通信模式
+
+- **CANFD 模式**：通过 CANFD 总线通信，支持高速数据传输
+- **EtherCAT 模式**：通过以太网通信，支持 100M 高速实时控制
+
+### 2. GPIO 控制
+
+| GPIO 引脚功能 | 描述 |
+|-------------|------|
+| START_MOTION | 开始循环运动 |
+| STOP_MOTION | 停止运动并回到零位置 |
+| CONNECT | 连接设备 |
+| DISCONNECT | 断开设备 |
+| START_GLOVE_LISTEN | 开始手套监听 |
+| CYCLE_COMPLETE | 循环完成信号输出 |
+| STATUS_LED | 状态 LED 输出 |
+| READY_STATUS | 就绪状态输出 |
+| RUNNING_STATUS | 运行状态输出 |
+
+### 3. 运动控制
+
+- **循环运动**：按照预设位置序列循环执行
+- **抓握动作**：执行预设的抓握动作序列
+- **手套控制**：通过 UDP 接收手套数据，实时控制灵巧手
+- **零位校准**：自动回零和手动回零功能
+
+### 4. 安全监控
+
+- **报警检测**：实时检测电机报警状态
+- **故障处理**：遇到报警时自动停止运动
+- **紧急停止**：支持通过 GPIO 和键盘紧急停止
+
+## 快速开始
+
+### 环境要求
+
+- **硬件**：树莓派 4B
+- **操作系统**：Ubuntu 20.04
+- **Python**：Python 3.9+
+- **依赖项**：见 `requirements.txt`
+
+### 安装步骤
+
+1. **克隆项目**
+
+```bash
+git clone <项目地址>
+cd RaspberryPiDemo
+```
+
+2. **安装依赖**
+
+```bash
+pip install -r requirements.txt
+```
+
+3. **安装 RPi.GPIO**（树莓派专用）
+
+```bash
+pip install RPi.GPIO
+# 或
+sudo apt-get install python3-rpi.gpio
+```
+
+### 运行项目
+
+#### 基本运行
+
+```bash
+sudo python3 launch.py
+```
+
+#### 命令行参数
+
+| 参数 | 简写 | 描述 | 默认值 |
+|------|------|------|--------|
+| --device-index | -i | 设备索引（0-3） | None（自动选择） |
+| --communication-mode | -m | 通信模式（CANFD/ECAT） | ECAT |
+| --enable-gpio | -g | 启用 GPIO 控制 | True |
+| --no-enable-gpio | - | 禁用 GPIO 控制 | False |
+
+## 配置说明
+
+### 通用配置
+
+在 `config.py` 中可以修改以下参数：
+
+- `DEFAULT_HOME_TIME`：回零等待时间
+- `DEFAULT_CYCLE_COUNT`：循环运动次数
+- `DEFAULT_CYCLE_VELOCITY`：循环运动速度
+- `DEFAULT_CYCLE_INTERVAL`：循环运动间隔时间
+- `DEFAULT_CYCLE_CURRENT`：循环运动最大电流
+- `CYCLE_MOVE_POSITIONS`：循环运动位置序列
+- `CYCLE_FINISH_POSITION`：循环运动结束位置
+- `ENABLE_ALARM_CHECK`：是否启用报警检测
+
+### 专用配置
+
+在 `configs/` 目录下提供了多种场景的配置文件：
+
+- `config_DH116S_CANFD_exhibit.py`：DH116S CANFD 展览模式配置
+- `config_DH116_CANFD_aging.py`：DH116 CANFD 老化测试配置
+- `config_DH116_ECAT_aging.py`：DH116 ECAT 老化测试配置
+- `config_Module_ECAT_aging.py`：模块 ECAT 老化测试配置
+
+### 配置文件使用方法
+
+要使用 `configs/` 目录下的配置文件，只需将对应配置文件的内容复制到主目录的 `config.py` 文件中即可：
+
+```bash
+# 使用 DH116S CANFD 展览模式配置
+cp configs/config_DH116S_CANFD_exhibit.py config.py
+
+# 使用 DH116 CANFD 老化测试配置
+cp configs/config_DH116_CANFD_aging.py config.py
+
+# 使用 DH116 ECAT 老化测试配置
+cp configs/config_DH116_ECAT_aging.py config.py
+
+# 使用模块 ECAT 老化测试配置
+cp configs/config_Module_ECAT_aging.py config.py
+```
+
+替换完成后，重启时会自动使用新的配置参数。
+
+## 使用指南
+
+### GPIO 控制
+
+1. **连接硬件**：将对应的功能按钮连接到树莓派的 GPIO 引脚
+2. **启动程序**：运行 `launch.py` 程序
+3. **硬件控制**：
+   - 按下 START_MOTION 按钮：开始循环运动
+   - 按下 STOP_MOTION 按钮：停止运动并回到零位置
+   - 按下 CONNECT 按钮：连接设备
+   - 按下 DISCONNECT 按钮：断开设备
+   - 按下 START_GLOVE_LISTEN 按钮：开始手套监听
+
+### 手套控制
+
+1. **启动手套设备**：确保手套设备正常运行并发送 UDP 数据
+2. **开始监听**：通过 GPIO 按钮或程序内部函数启动手套监听
+3. **实时控制**：手套的动作将实时传递给灵巧手
+
+### 循环运动
+
+1. **配置参数**：在 `config.py` 中设置循环运动参数
+2. **启动运动**：通过 GPIO 按钮或程序内部函数启动循环运动
+3. **监控状态**：循环完成时会输出完成信号
+
+## 故障排除
+
+### 常见问题
+
+1. **GPIO 设置失败**
+   - 确保在树莓派硬件上运行
+   - 确保安装了 RPi.GPIO 库
+   - 确保有足够的权限（使用 sudo 或加入 gpio 组）
+
+2. **设备连接失败**
+   - 检查通信线缆连接
+   - 确认设备电源正常
+   - 检查通信模式设置是否正确
+
+3. **运动控制失败**
+   - 检查电机是否正常使能
+   - 确认设备已正确回零
+   - 检查报警状态并清除报警
+
+### 日志查看
+
+程序运行时会输出详细的日志信息，包括：
+- 设备连接状态
+- 运动执行情况
+- 错误和警告信息
+- GPIO 触发事件
+
+## 依赖项
+
+| 依赖项 | 版本 | 用途 |
+|--------|------|------|
+| keyboard | ~=0.13.5 | 键盘事件监听 |
+| pysoem | ~=1.1.12 | EtherCAT 通信 |
+| RPi.GPIO | >=0.7.0 | 树莓派 GPIO 控制 |
+
+## 许可证
+
+本项目采用 Apache-2.0 license 许可证。
+
+## 注意事项
+
+1. **安全操作**：在操作灵巧手时，请确保周围环境安全，避免造成人员伤害或设备损坏
+2. **硬件要求**：GPIO 功能仅在树莓派硬件上可用，其他平台可使用 `--no-enable-gpio` 选项禁用
+3. **权限问题**：操作 GPIO 需要相应的权限，请确保以正确的用户身份运行程序
+4. **通信设置**：根据实际硬件连接选择正确的通信模式和设备索引
+
+## 联系信息
+
+如有问题或建议，请联系项目维护人员。
 
 ## 系统架构
 
@@ -27,7 +240,7 @@ LHandProLib Python 示例项目是一个基于树莓派的灵巧手演示项目�
 │                     应用层                               │
 ├───────────────┬───────────────┬─────────────────────────┤
 │ main.py       │ test_gpio.py  │ test_glove.py           │
-│ main_aging.py │ main_canfd.py │ test.py                 │
+│ launch.py     │ log.py        │ config_loader.py        │
 └───────────────┴───────────────┴─────────────────────────┘
         │                  │                  │
         ▼                  ▼                  ▼
@@ -48,42 +261,19 @@ LHandProLib Python 示例项目是一个基于树莓派的灵巧手演示项目�
 ┌─────────────────────────────────────────────────────────┐
 │                     硬件层                               │
 ├───────────────┬───────────────┬─────────────────────────┤
-│ LHandPro 机械臂 │ 树莓派 GPIO  │ 手套 UDP 数据           │
+│ LHandPro 灵巧手 │ 树莓派 GPIO  │ 手套 UDP 数据           │
 └───────────────┴───────────────┴─────────────────────────┘
 ```
-
-## 文件用途说明
-
-| 文件名 | 用途描述 |
-|--------|----------|
-| `.gitignore` | Git 忽略文件配置，指定不被版本控制的文件和目录 |
-| `GPIO_README.md` | GPIO 相关的详细说明文档 |
-| `LICENSE` | 项目许可证文件（Apache-2.0） |
-| `README.md` | 项目主文档，包含项目概述、使用指南等信息 |
-| `actions.txt` | 动作序列配置文件，定义灵巧手的运动动作 |
-| `canfd_lib.py` | CANFD 通信库封装，提供 CANFD 设备的扫描、连接、发送和接收功能 |
-| `ethercat_master.py` | EtherCAT 主站实现，处理与 LHandPro 设备的 EtherCAT 通信 |
-| `gpio_controller.py` | GPIO 控制器，管理树莓派 GPIO 引脚的输入和输出操作 |
-| `lhandpro_controller.py` | LHandPro 控制器封装类，支持 CANFD 和 EtherCAT 双模式通信 |
-| `lhandprolib_loader.py` | LHandPro 库加载器，负责加载和初始化 LHandPro 相关的动态库 |
-| `lhandprolib_wrapper.py` | LHandPro 库包装器，提供 Python 对 LHandPro 库的接口封装 |
-| `main.py` | 主程序，集成设备控制、GPIO 操作和手套数据监听功能 |
-| `main_aging.py` | 老化测试程序，用于长时间稳定性测试 |
-| `main_canfd.py` | CANFD 专用主程序，专注于 CANFD 通信模式的功能演示 |
-| `requirements.txt` | Python 依赖包列表，包含项目所需的第三方库 |
-| `test.py` | 通用测试程序，用于测试 LHandPro 控制器的各种功能 |
-| `test_glove.py` | 手套数据测试工具，验证 UDP 手套数据接收功能 |
-| `test_gpio.py` | GPIO 测试工具，用于测试 GPIO 引脚的输入和输出功能 |
-| `udp_receiver.py` | UDP 数据接收器，负责接收和处理手套发送的 UDP 数据 |
 
 ## 硬件要求
 
 ### 主要硬件
-- 树莓派 4B
+- 树莓派 4B 
 - LHandPro 灵巧手
 - 电源适配器
 - CANFD 通信模块（可选，用于 CANFD 通信模式）
 - EtherCAT 通信模块（可选，用于 EtherCAT 通信模式）
+- GPIO 按钮和 LED（用于硬件控制和状态指示）
 
 ### GPIO 引脚连接
 
@@ -112,262 +302,25 @@ LHandProLib Python 示例项目是一个基于树莓派的灵巧手演示项目�
 
 **注意**: 所有输入引脚默认使用下拉电阻，需要连接到 GND 以触发操作。
 
-## 安装步骤
+## 日志系统
 
-### 1. 系统要求
-- Ubuntu 20.04 LTS 
-- Python 3.7 或更高版本
-- root 权限（用于 GPIO 和 EtherCAT 操作）
+### 日志文件管理
 
-### 2. 安装依赖
+项目使用 `log.py` 实现了智能日志管理系统，具有以下特点：
 
-```bash
-# 安装系统依赖
-sudo apt-get update
-sudo apt-get install -y python3-pip python3-dev git
+- **自动日志轮转**：定期创建新的日志文件，防止单个日志文件过大
+- **日志级别控制**：支持不同级别的日志输出（DEBUG、INFO、WARNING、ERROR）
+- **文件数量限制**：自动管理日志文件数量，防止磁盘空间不足
+- **详细的日志内容**：记录设备连接状态、运动执行情况、错误信息等
 
-# 安装 Python 依赖
-pip3 install -r requirements.txt
-```
+### 日志查看
 
-### 3. 项目位置
+日志文件默认存储在项目目录`logs`，可通过以下方式查看：
 
 ```bash
-# 进入项目目录
-cd /home/ubuntu/Documents/aarch64/share/LHandProLib/examples/CANFD_python
+# 查看最新日志
+cat logs/app*.log
+
+# 实时查看日志
+tail -f logs/app*.log
 ```
-
-## 使用指南
-
-### 快速开始
-
-1. **连接硬件**:
-   - 将 LHandPro 灵巧手通过 CANFD 或 EtherCAT 连接到树莓派
-   - 连接 GPIO 按钮和 LED 到相应引脚
-   - 确保电源连接稳定
-
-2. **运行主程序**:
-
-```bash
-# 以 root 权限运行（需要 GPIO 和 CANFD/EtherCAT 权限）
-sudo python3 main.py
-```
-
-3. **选择通信模式**:
-
-```bash
-# 使用 CANFD 模式运行
-sudo python3 main.py --mode CANFD
-
-# 使用 EtherCAT 模式运行
-sudo python3 main.py --mode ECAT
-```
-
-4. **指定设备索引** (仅 CANFD 模式):
-
-```bash
-# 连接指定设备索引
-sudo python3 main.py --mode CANFD --device-index 1
-```
-
-5. **操作流程**:
-   - 按下 GPIO 22（连接设备）按钮
-   - 按下 GPIO 17（开始运动）按钮
-   - 按下 GPIO 27（停止运动）按钮
-   - 按下 GPIO 26（开始手套监听）按钮
-   - 按下 GPIO 23（断开设备）按钮
-
-### 程序功能说明
-
-#### main.py
-主程序，包含以下功能：
-- 支持 CANFD 和 EtherCAT 双通信模式
-- 自动连接 LHandPro 设备
-- 执行预设的循环运动序列
-- 通过 GPIO 控制灵巧手
-- 监听手套 UDP 数据
-
-#### main_canfd.py
-CANFD 专用主程序，专注于 CANFD 通信模式的功能演示：
-
-```bash
-sudo python3 main_canfd.py
-```
-
-#### main_aging.py
-老化测试程序，用于长时间稳定性测试：
-
-```bash
-sudo python3 main_aging.py
-```
-
-#### test.py
-通用测试程序，用于测试 LHandPro 控制器的各种功能：
-
-```bash
-sudo python3 test.py
-```
-
-#### test_gpio.py
-GPIO 测试工具，用于测试 GPIO 引脚的输入和输出功能：
-
-```bash
-sudo python3 test_gpio.py
-```
-
-#### test_glove.py
-手套数据测试工具，用于测试 UDP 手套数据接收功能：
-
-```bash
-python3 test_glove.py
-```
-
-## 配置说明
-
-### GPIO 引脚配置
-
-可以在 `gpio_controller.py` 文件中修改 GPIO 引脚定义：
-
-```python
-class GPIO_PINS:
-    # 输入引脚定义（BCM编号）
-    START_MOTION = 17     # 开始循环运动 (物理引脚11)
-    STOP_MOTION = 27      # 停止运动并回到0 (物理引脚13)
-    CONNECT = 22          # 连接设备 (物理引脚15)
-    DISCONNECT = 23       # 断开连接 (物理引脚16)
-    START_GLOVE_LISTEN = 26  # 开始手套监听 (物理引脚37)
-    
-    # 输出引脚定义（BCM编号）
-    READY_STATUS = 5      # 程序已准备好/待命状态 (物理引脚29)
-    RUNNING_STATUS = 6    # 循环运行中状态 (物理引脚31)
-    CYCLE_COMPLETE = 24   # 循环完成信号输出 (物理引脚18)
-    STATUS_LED = 25       # 连接状态LED输出 (物理引脚22)
-    RGB_R = 12            # RGB 红 (物理引脚32，PWM)
-    RGB_G = 13            # RGB 绿 (物理引脚33，PWM)
-    RGB_B = 19            # RGB 蓝 (物理引脚35，PWM)
-```
-
-### 运动序列配置
-
-在 `main.py` 文件中修改 `positions` 列表以调整循环运动序列：
-
-```python
-self.positions = [
-    [10000, 10000, 0, 0, 0, 0],   # 位置 1
-    [0, 0, 0, 0, 0, 0],           # 位置 2
-    [0, 0, 10000, 10000, 10000, 10000],  # 位置 3
-    [0, 0, 0, 0, 0, 0],           # 位置 4
-]
-```
-
-### UDP 端口配置
-
-在 `udp_receiver.py` 文件中修改 UDP 端口：
-
-```python
-class UDPReceiver:
-    def __init__(self, port=7777, callback=None):
-        self.port = port
-        self.callback = callback
-        # ...
-```
-
-## 状态指示说明
-
-### RGB 状态灯
-
-| 颜色 | 状态 | 说明 |
-|------|------|------|
-| 红色 | 错误/断开 | 设备连接失败或出现错误 |
-| 黄色 | 未就绪 | 程序初始化中或设备未连接 |
-| 绿色 | 就绪 | 设备已连接，等待命令 |
-| 蓝色 | 运动中 | 灵巧手正在执行循环运动 |
-| 青色 | 手套监听中 | 正在接收手套数据 |
-
-### 状态输出
-
-| 输出 | 状态 | 说明 |
-|------|------|------|
-| STATUS_LED | 高电平 | 设备已连接 |
-| STATUS_LED | 低电平 | 设备未连接 |
-| READY_STATUS | 高电平 | 程序就绪 |
-| READY_STATUS | 低电平 | 程序未就绪 |
-| RUNNING_STATUS | 高电平 | 运动运行中 |
-| RUNNING_STATUS | 低电平 | 运动已停止 |
-| CYCLE_COMPLETE | 高电平脉冲 | 循环运动完成一次 |
-
-## 贡献指南
-
-我们欢迎社区成员参与项目贡献。如果您希望为项目做出贡献，请遵循以下步骤：
-
-1. **Fork 项目**：在 GitHub 上 fork 本项目到您的个人账户
-2. **创建分支**：为您的功能或修复创建一个新的分支
-3. **开发**：实现您的功能或修复，并确保代码质量
-4. **测试**：运行测试确保您的修改不会破坏现有功能
-5. **提交 PR**：提交 Pull Request 到主分支，并详细描述您的修改
-
-### 代码规范
-- 为新功能添加文档和注释
-- 确保所有修改都有对应的测试用例
-
-## 故障排除
-
-### 常见问题
-
-1. **无法导入 RPi.GPIO**
-   - 确保在树莓派上运行
-   - 检查是否已安装：`pip list | grep RPi.GPIO`
-
-2. **GPIO 无响应**
-   - 检查硬件连接是否正确
-   - 确保使用 root 权限运行程序
-   - 检查 GPIO 引脚是否被其他程序占用
-
-3. **CANFD 连接失败**
-   - 检查 CANFD 线缆连接
-   - 确保 CANFD 模块已正确安装
-   - 使用 `test.py` 测试 CANFD 设备连接
-
-4. **EtherCAT 连接失败**
-   - 检查 EtherCAT 线缆连接
-   - 确保以太网卡已启用
-   - 检查 LHandPro 设备电源
-
-5. **手套数据接收失败**
-   - 检查 UDP 端口设置
-   - 确保网络连接正常
-   - 检查手套设备是否正常发送数据
-
-### 调试技巧
-
-- 使用 `test_gpio.py` 测试 GPIO 功能
-- 使用 `test_glove.py` 测试手套数据接收
-- 使用 `test.py` 测试 CANFD 设备连接
-- 查看程序输出的日志信息
-
-## 许可证信息
-
-本项目基于 Apache-2.0 许可证开源，详见 LICENSE 文件。
-
-## 更新日志
-
-### v1.0.0 (2023-12-01)
-- 初始版本发布
-- 支持 EtherCAT 通信和 GPIO 控制
-- 实现循环运动和手套数据监听功能
-
-### v1.1.0 (2024-01-15)
-- 优化 GPIO 控制逻辑
-- 增加手套数据模拟功能
-- 完善状态指示系统
-- 修复已知 bug
-
-### v2.0.0 (2024-03-20)
-- 新增 CANFD 通信模式支持
-- 实现双通信模式切换功能
-- 优化设备连接和选择逻辑
-- 增加多设备支持
-
-## 致谢
-
-感谢所有为 LHandProLib 项目做出贡献的开发者和用户！
