@@ -14,7 +14,7 @@ from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK
 class LHandProController:
     """LHandPro 控制器封装类 - 支持ECAT和CANFD双模式"""
 
-    def __init__(self, communication_mode: str = "CANFD"):
+    def __init__(self, communication_mode: str):
         """初始化控制器
         
         Args:
