@@ -3,11 +3,7 @@ import subprocess
 import time
 import sys
 import argparse
-
-# 宏定义：默认启动模式
-# True: 启动1个脚本，使用ECAT通信模式
-# False: 启动4个脚本，使用CANFD通信模式
-DEFAULT_USE_ECAT_MODE = True
+from config import DEFAULT_USE_ECAT_MODE
 
 if __name__ == "__main__":
     # 解析命令行参数
