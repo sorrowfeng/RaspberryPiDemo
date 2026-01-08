@@ -222,7 +222,7 @@ class MotionController:
                         return
                     
                     # 运动前检查报警
-                    if self.controller.get_alarm():
+                    if ENABLE_ALARM_CHECK and self.controller.get_alarm():
                         logging.warning("⚠️ 检测到报警, 运动停止")
                         return
                     
