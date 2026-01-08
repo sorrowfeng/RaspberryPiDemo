@@ -23,9 +23,10 @@ LER_LOG_SAVE_FAIL = 10
 LER_NOT_HOME = 11
 LER_UNKNOWN = 999
 
-# 自由度枚举
-LAC_DOF_6 = 6
-LAC_DOF_15 = 15
+# 型号枚举
+LAC_DOF_6 = 0
+LAC_DOF_6_S = 1
+LAC_DOF_15 = 2
 
 # 通讯类型枚举
 LCN_ECAT = 0
@@ -173,17 +174,20 @@ class LHandProLibLoader:
         self._lib.lhandprolib_get_pre_send_canfd_data.argtypes = [c_void_p, POINTER(c_char), POINTER(c_int)]
 
         # 配置相关函数
-        self._lib.lhandprolib_set_dof_type.restype = c_int
-        self._lib.lhandprolib_set_dof_type.argtypes = [c_void_p, c_int]
-
         self._lib.lhandprolib_get_dof.restype = c_int
         self._lib.lhandprolib_get_dof.argtypes = [c_void_p, POINTER(c_int), POINTER(c_int)]
+
+        self._lib.lhandprolib_set_hand_type.restype = c_int
+        self._lib.lhandprolib_set_hand_type.argtypes = [c_void_p, c_int]
 
         self._lib.lhandprolib_set_hand_direction.restype = c_int
         self._lib.lhandprolib_set_hand_direction.argtypes = [c_void_p, c_int]
 
         self._lib.lhandprolib_get_hand_direction.restype = c_int
         self._lib.lhandprolib_get_hand_direction.argtypes = [c_void_p, POINTER(c_int)]
+
+        self._lib.lhandprolib_set_move_no_home.restype = c_int
+        self._lib.lhandprolib_set_move_no_home.argtypes = [c_void_p, c_int]
 
         # 电机控制相关函数
         self._define_motor_control_prototypes()

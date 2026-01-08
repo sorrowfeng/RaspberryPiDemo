@@ -6,14 +6,15 @@ LHandPro 控制器封装类 - 支持ECAT和CANFD双模式
 import time
 import threading
 from typing import Optional, List, Tuple
-from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD
+from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
+from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK
 
 
 class LHandProController:
     """LHandPro 控制器封装类 - 支持ECAT和CANFD双模式"""
 
-    def __init__(self, communication_mode: str = "CANFD"):
+    def __init__(self, communication_mode: str):
         """初始化控制器
         
         Args:
@@ -119,8 +120,10 @@ class LHandProController:
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
             
+            retn = False
+
             if self.communication_mode == "CANFD":
-                return self._connect_canfd(
+                retn = self._connect_canfd(
                     enable_motors=enable_motors,
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
@@ -130,15 +133,23 @@ class LHandProController:
                     auto_select=auto_select
                 )
             elif self.communication_mode == "ECAT":
-                # ECAT模式仍然保留原来的参数传递方式
-                return self._connect_ecat(
+                retn = self._connect_ecat(
                     enable_motors=enable_motors,
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
                     channel_index=device_index, 
                     auto_select=auto_select
                 )
-            
+
+            self.lhp.set_hand_type(CURRENT_HAND_TYPE)
+
+            if ENABLE_HOME_CHECK:
+                self.lhp.set_move_no_home(0)
+            else:
+                self.lhp.set_move_no_home(1)    
+
+            return retn
+        
         except (LHandProLibError, Exception) as e:
             print(f"操作失败: {e}")
             if self.lhp:
@@ -203,13 +214,9 @@ class LHandProController:
                 return False
             print(f"使用指定设备索引: {device_index}")
         
-        # 通道固定为0
-        channel_index = 0
-        print(f"使用固定通道索引: {channel_index}")
-        
         # 连接CANFD设备
         print(f"正在连接CANFD设备，标称波特率: {canfd_nom_baudrate}bps，数据波特率: {canfd_dat_baudrate}bps")
-        if not self.canfd.connect(device_index=device_index, channel_index=channel_index, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
+        if not self.canfd.connect(device_index=device_index, channel_index=0, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
             print("CANFD设备连接失败")
             self.lhp.close()
             self.lhp = None
@@ -297,6 +304,7 @@ class LHandProController:
             return False
 
         print("连接成功")
+        self.is_connected = True
 
         if not self.ec_master.start():
             print("启动设备失败")
