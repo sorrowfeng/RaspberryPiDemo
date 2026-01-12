@@ -134,10 +134,11 @@ sudo python3 launch.py
 在 `configs/` 目录下提供了多种场景的配置文件：
 
 - `config_DH116_CANFD_exhibit.py`：DH116 CANFD 展览模式配置
-- `config_DH116_ECAT_exhibit.py`：DH116 ECAT 展览模式配置
 - `config_DH116_CANFD_aging.py`：DH116 CANFD 老化测试配置
+- `config_DH116_ECAT_exhibit.py`：DH116 ECAT 展览模式配置
 - `config_DH116_ECAT_aging.py`：DH116 ECAT 老化测试配置
 - `config_DH116S_CANFD_exhibit.py`：DH116S CANFD 展览模式配置
+- `config_DH116S_CANFD_aging.py`：DH116S CANFD 老化测试配置
 - `config_Module_ECAT_aging.py`：模块 ECAT 老化测试配置
 
 ### 配置文件使用方法
