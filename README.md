@@ -14,9 +14,12 @@
 ```
 RaspberryPiDemo/
 ├── configs/                # 配置文件目录
-│   ├── config_DH116S_CANFD_exhibit.py
 │   ├── config_DH116_CANFD_aging.py
+│   ├── config_DH116_CANFD_exhibit.py
 │   ├── config_DH116_ECAT_aging.py
+│   ├── config_DH116_ECAT_exhibit.py
+│   ├── config_DH116S_CANFD_aging.py
+│   ├── config_DH116S_CANFD_exhibit.py
 │   └── config_Module_ECAT_aging.py
 ├── launch.py                 # 启动文件
 ├── main.py                 # 主函数文件
@@ -146,16 +149,25 @@ sudo python3 launch.py
 要使用 `configs/` 目录下的配置文件，只需将对应配置文件的内容复制到主目录的 `config.py` 文件中即可：
 
 ```bash
-# 使用 DH116S CANFD 展览模式配置
-cp configs/config_DH116S_CANFD_exhibit.py config.py
-
 # 使用 DH116 CANFD 老化测试配置
 cp configs/config_DH116_CANFD_aging.py config.py
+
+# 使用 DH116 CANFD 展览模式配置
+cp configs/config_DH116_CANFD_exhibit.py config.py
 
 # 使用 DH116 ECAT 老化测试配置
 cp configs/config_DH116_ECAT_aging.py config.py
 
-# 使用模块 ECAT 老化测试配置
+# 使用 DH116 ECAT 展览模式配置
+cp configs/config_DH116_ECAT_exhibit.py config.py
+
+# 使用 DH116S CANFD 老化测试配置
+cp configs/config_DH116S_CANFD_aging.py config.py
+
+# 使用 DH116S CANFD 展览模式配置
+cp configs/config_DH116S_CANFD_exhibit.py config.py
+
+# 使用 模组 ECAT 老化测试配置
 cp configs/config_Module_ECAT_aging.py config.py
 ```
 
