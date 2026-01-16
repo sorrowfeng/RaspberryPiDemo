@@ -202,6 +202,18 @@ class PyLHandProLib:
         self._check_error(result, "获取控制模式")
         return mode.value
 
+    def set_torque_control_mode(self, motor_id: int, mode: int) -> None:
+        """设置扭矩控制模式"""
+        result = self._lib.lhandprolib_set_torque_control_mode(self._handle, motor_id, mode)
+        self._check_error(result, "设置扭矩控制模式")
+
+    def get_torque_control_mode(self, motor_id: int) -> int:
+        """获取扭矩控制模式"""
+        mode = c_int()
+        result = self._lib.lhandprolib_get_torque_control_mode(self._handle, motor_id, byref(mode))
+        self._check_error(result, "获取扭矩控制模式")
+        return mode.value
+
     def set_enable(self, motor_id: int, enable: bool) -> None:
         """设置使能状态"""
         result = self._lib.lhandprolib_set_enable(self._handle, motor_id, int(enable))

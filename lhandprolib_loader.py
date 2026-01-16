@@ -207,6 +207,8 @@ class LHandProLibLoader:
         functions = [
             ('lhandprolib_set_control_mode', [c_void_p, c_int, c_int]),
             ('lhandprolib_get_control_mode', [c_void_p, c_int, POINTER(c_int)]),
+            ('lhandprolib_set_torque_control_mode', [c_void_p, c_int, c_int]),
+            ('lhandprolib_get_torque_control_mode', [c_void_p, c_int, POINTER(c_int)]),
             ('lhandprolib_set_enable', [c_void_p, c_int, c_int]),
             ('lhandprolib_get_enable', [c_void_p, c_int, POINTER(c_int)]),
             ('lhandprolib_get_position_reached', [c_void_p, c_int, POINTER(c_int)]),

@@ -8,7 +8,7 @@ import threading
 from typing import Optional, List, Tuple
 from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
-from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK
+from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
 
 
 class LHandProController:
@@ -147,6 +147,12 @@ class LHandProController:
                 self.lhp.set_move_no_home(0)
             else:
                 self.lhp.set_move_no_home(1)    
+
+            # 设置扭矩控制模式
+            if ENABLE_TORQUE_CONTROL:
+                self.lhp.set_torque_control_mode(0, 1)
+            else:
+                self.lhp.set_torque_control_mode(0, 0)
 
             return retn
         
@@ -342,7 +348,6 @@ class LHandProController:
 
         # 使能电机
         if enable_motors:
-            self.lhp.set_control_mode(0, LCM_POSITION)
             self.lhp.set_enable(0, True)
             print("等待使能完成")
             time.sleep(1.0)
@@ -521,7 +526,6 @@ class LHandProController:
             return
 
         try:
-            self.lhp.set_control_mode(0, LCM_POSITION)
             self.lhp.set_enable(0, enable)
             print(f"电机{'使能' if enable else '禁用'}成功")
         except Exception as e:

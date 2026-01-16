@@ -44,3 +44,5 @@ CYCLE_FINISH_POSITION = [0, 0, 0, 0, 0, 0]
 ENABLE_ALARM_CHECK = True
 # 是否启用回零完成检测
 ENABLE_HOME_CHECK = True
+# 是否启用扭矩到位停止
+ENABLE_TORQUE_CONTROL = False
