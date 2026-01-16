@@ -20,7 +20,8 @@ RaspberryPiDemo/
 │   ├── config_DH116_ECAT_exhibit.py
 │   ├── config_DH116S_CANFD_aging.py
 │   ├── config_DH116S_CANFD_exhibit.py
-│   └── config_Module_ECAT_aging.py
+│   ├── config_Module_ECAT_aging.py
+│   └── config_Module_CANFD_aging.py
 ├── launch.py                 # 启动文件
 ├── main.py                 # 主函数文件
 ├── lhandpro_controller.py  # LHandPro 控制器核心类
@@ -143,6 +144,7 @@ sudo python3 launch.py
 - `config_DH116S_CANFD_exhibit.py`：DH116S CANFD 展览模式配置
 - `config_DH116S_CANFD_aging.py`：DH116S CANFD 老化测试配置
 - `config_Module_ECAT_aging.py`：模块 ECAT 老化测试配置
+- `config_Module_CANFD_aging.py`：模块 CANFD 老化测试配置
 
 ### 配置文件使用方法
 
@@ -169,6 +171,9 @@ cp configs/config_DH116S_CANFD_exhibit.py config.py
 
 # 使用 模组 ECAT 老化测试配置
 cp configs/config_Module_ECAT_aging.py config.py
+
+# 使用 模组 CANFD 老化测试配置
+cp configs/config_Module_CANFD_aging.py config.py
 ```
 
 替换完成后，重启时会自动使用新的配置参数。
