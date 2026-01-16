@@ -282,39 +282,44 @@ class GPIOController:
         self.cleanup()
         return False
 
-# GPIO引脚定义（使用常规GPIO，避开复用功能引脚）
+# GPIO引脚定义
 class GPIO_PINS:
     """
     GPIO引脚定义常量类
-    使用BCM编号模式，选择常规GPIO引脚，避开I2C、SPI、UART、PCM、PWM等复用功能
+    使用BCM编号模式，主要选择常规GPIO引脚，部分引脚具有复用功能
     
     参考: https://pinout.vvzero.com/
     
     输入引脚（物理引脚位置）:
-    - GPIO 17 (物理引脚11) - 常规GPIO
-    - GPIO 27 (物理引脚13) - 常规GPIO  
-    - GPIO 22 (物理引脚15) - 常规GPIO
-    - GPIO 23 (物理引脚16) - 常规GPIO
-    - GPIO 26 (物理引脚37) - 常规GPIO
-    - GPIO 20 (物理引脚38) - PCM DIN
+    - GPIO 17 (物理引脚11) - 常规GPIO - START_MOTION
+    - GPIO 27 (物理引脚13) - 常规GPIO - STOP_MOTION
+    - GPIO 22 (物理引脚15) - 常规GPIO - START_GRASP
+    - GPIO 23 (物理引脚16) - 常规GPIO - CONNECT
+    - GPIO 24 (物理引脚18) - 常规GPIO - DISCONNECT
+    - GPIO 25 (物理引脚22) - 常规GPIO - START_GLOVE_LISTEN
     
     输出引脚（物理引脚位置）:
-    - GPIO 5  (物理引脚29) - 常规GPIO
-    - GPIO 6  (物理引脚31) - 常规GPIO
-    - GPIO 24 (物理引脚18) - 常规GPIO
-    - GPIO 25 (物理引脚22) - 常规GPIO
+    - GPIO 5  (物理引脚29) - 常规GPIO - CYCLE_COMPLETE[0]
+    - GPIO 6  (物理引脚31) - 常规GPIO - CYCLE_COMPLETE[1]
+    - GPIO 13 (物理引脚33) - PWM1 - CYCLE_COMPLETE[2]
+    - GPIO 19 (物理引脚35) - PWM0 - CYCLE_COMPLETE[3]
+    - GPIO 16 (物理引脚36) - 常规GPIO - READY_STATUS
+    - GPIO 20 (物理引脚38) - PCM_CLK - RUNNING_STATUS
+    - GPIO 21 (物理引脚40) - PCM_DOUT - STATUS_LED
     """
-    # 输入引脚定义（常规GPIO，无复用功能）
+    # 输入引脚定义
     START_MOTION = 17     # 开始循环运动 (物理引脚11)
     STOP_MOTION = 27      # 停止运动并回到0 (物理引脚13)
-    CONNECT = 22          # 连接设备 (物理引脚15)
-    DISCONNECT = 23       # 断开连接 (物理引脚16)
-    START_GLOVE_LISTEN = 26  # 开始手套监听 (物理引脚37)
-    START_GRASP = 20        # 开始抓握 (物理引脚38)
+    START_GRASP = 22      # 开始抓握 (物理引脚15)
+    CONNECT = 23          # 连接设备 (物理引脚16)
+    DISCONNECT = 24       # 断开连接 (物理引脚18)
+    START_GLOVE_LISTEN = 25  # 开始手套监听 (物理引脚22)
     
-    # 输出引脚定义（常规GPIO，无复用功能）
-    READY_STATUS = 5      # 程序已准备好/待命状态 (物理引脚29)
-    RUNNING_STATUS = 6    # 循环运行中状态 (物理引脚31)
-    CYCLE_COMPLETE = 24   # 循环完成信号输出 (物理引脚18)
-    STATUS_LED = 25       # 连接状态LED输出 (物理引脚22)
+    # 输出引脚定义
+    CYCLE_COMPLETE = [5, 6, 13, 19]   # 循环完成信号输出数组，根据设备索引选择对应引脚：
+                                      # 索引0: GPIO 5 (物理引脚29), 索引1: GPIO 6 (物理引脚31), 
+                                      # 索引2: GPIO 13 (物理引脚33), 索引3: GPIO 19 (物理引脚35)
+    READY_STATUS = 16      # 程序已准备好/待命状态 (物理引脚36)
+    RUNNING_STATUS = 20    # 循环运行中状态 (物理引脚38)
+    STATUS_LED = 21       # 连接状态LED输出 (物理引脚40)
 

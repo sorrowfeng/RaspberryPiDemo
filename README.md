@@ -50,7 +50,7 @@ RaspberryPiDemo/
 | CONNECT | 连接设备 |
 | DISCONNECT | 断开设备 |
 | START_GLOVE_LISTEN | 开始手套监听 |
-| CYCLE_COMPLETE | 循环完成信号输出 |
+| CYCLE_COMPLETE | 循环完成信号输出（根据设备索引选择不同引脚：索引0-3对应GPIO 5, 6, 13, 19） |
 | STATUS_LED | 状态 LED 输出 |
 | READY_STATUS | 就绪状态输出 |
 | RUNNING_STATUS | 运行状态输出 |
@@ -298,22 +298,22 @@ cp configs/config_Module_ECAT_aging.py config.py
 |-----------|---------|------|
 | GPIO 17 | 引脚 11 | START_MOTION：开始循环运动 |
 | GPIO 27 | 引脚 13 | STOP_MOTION：停止运动并回到0位置 |
-| GPIO 22 | 引脚 15 | CONNECT：连接设备 |
-| GPIO 23 | 引脚 16 | DISCONNECT：断开设备连接 |
-| GPIO 26 | 引脚 37 | START_GLOVE_LISTEN：开始手套监听 |
-| GPIO 20 | 引脚 38 | START_GRASP：开始抓握 |
+| GPIO 22 | 引脚 15 | START_GRASP：开始抓握 |
+| GPIO 23 | 引脚 16 | CONNECT：连接设备 |
+| GPIO 24 | 引脚 18 | DISCONNECT：断开设备连接 |
+| GPIO 25 | 引脚 22 | START_GLOVE_LISTEN：开始手套监听 |
 
 #### 输出引脚（BCM 编号模式）
 
 | GPIO (BCM) | 物理引脚 | 功能 |
 |-----------|---------|------|
-| GPIO 24 | 引脚 18 | CYCLE_COMPLETE：循环完成信号（0.5秒脉冲） |
-| GPIO 25 | 引脚 22 | STATUS_LED：设备连接状态LED |
-| GPIO 5  | 引脚 29 | READY_STATUS：程序就绪状态 |
-| GPIO 6  | 引脚 31 | RUNNING_STATUS：运动运行状态 |
-| GPIO 12 | 引脚 32 | RGB_R：RGB 红色通道（PWM） |
-| GPIO 13 | 引脚 33 | RGB_G：RGB 绿色通道（PWM） |
-| GPIO 19 | 引脚 35 | RGB_B：RGB 蓝色通道（PWM） |
+| GPIO 5  | 引脚 29 | CYCLE_COMPLETE[0]：循环完成信号（设备索引0或None使用） |
+| GPIO 6  | 引脚 31 | CYCLE_COMPLETE[1]：循环完成信号（设备索引1使用） |
+| GPIO 13 | 引脚 33 | CYCLE_COMPLETE[2]：循环完成信号（设备索引2使用） |
+| GPIO 19 | 引脚 35 | CYCLE_COMPLETE[3]：循环完成信号（设备索引3使用） |
+| GPIO 16 | 引脚 36 | READY_STATUS：程序就绪状态 |
+| GPIO 20 | 引脚 38 | RUNNING_STATUS：运动运行状态 |
+| GPIO 21 | 引脚 40 | STATUS_LED：设备连接状态LED |
 
 **注意**: 所有输入引脚默认使用下拉电阻，需要连接到 GND 以触发操作。
 

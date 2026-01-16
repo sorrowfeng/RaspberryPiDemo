@@ -40,6 +40,10 @@ class MotionController:
         self.device_index = device_index  # 存储设备索引
         self.enable_gpio = enable_gpio  # 保存GPIO启用状态
         
+        # 根据device_index选择对应的CYCLE_COMPLETE引脚
+        # 当device_index为0或None时，使用数组索引0的引脚；否则使用对应索引的引脚
+        self.cycle_complete_pin = GPIO_PINS.CYCLE_COMPLETE[0] if device_index in [0, None] else GPIO_PINS.CYCLE_COMPLETE[device_index]
+        
         # 运动控制标志
         self.motion_running = False
         self.motion_lock = threading.Lock()
@@ -102,7 +106,7 @@ class MotionController:
         )
         
         # 设置输出引脚
-        self.gpio.setup_output(GPIO_PINS.CYCLE_COMPLETE, initial=False)
+        self.gpio.setup_output(self.cycle_complete_pin, initial=False)
         self.gpio.setup_output(GPIO_PINS.STATUS_LED, initial=False)
         self.gpio.setup_output(GPIO_PINS.READY_STATUS, initial=False)
         self.gpio.setup_output(GPIO_PINS.RUNNING_STATUS, initial=False)
@@ -244,7 +248,7 @@ class MotionController:
                         # 完成一个循环，输出脉冲信号
                         logging.info("✅ 完成一个循环，输出完成信号")
                         if self.enable_gpio:
-                            self.gpio.output_pulse(GPIO_PINS.CYCLE_COMPLETE, duration=0.5)
+                            self.gpio.output_pulse(self.cycle_complete_pin, duration=0.5)
                     
                     # 再次检查停止标志
                     if self.stop_motion_flag.is_set():
@@ -457,7 +461,7 @@ class MotionController:
         logging.info(f"  GPIO {GPIO_PINS.CONNECT}: 连接设备")
         logging.info(f"  GPIO {GPIO_PINS.DISCONNECT}: 断开设备")
         logging.info(f"  GPIO {GPIO_PINS.START_GLOVE_LISTEN}: 开始手套监听")
-        logging.info(f"  GPIO {GPIO_PINS.CYCLE_COMPLETE}: 循环完成信号输出")
+        logging.info(f"  GPIO {self.cycle_complete_pin}: 循环完成信号输出 {self.device_index}")
         logging.info(f"  GPIO {GPIO_PINS.STATUS_LED}: 状态LED输出")
         logging.info("\n按 Esc 键退出程序...\n")
         
