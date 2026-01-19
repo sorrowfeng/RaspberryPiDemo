@@ -53,8 +53,7 @@ if __name__ == "__main__":
                 cmd = python_cmd + [
                     "main.py",
                     f"--device-index={i}",
-                    "--communication-mode=CANFD",
-                    "--no-enable-gpio"
+                    "--communication-mode=CANFD"
                 ]
                 process = subprocess.Popen(cmd)
                 

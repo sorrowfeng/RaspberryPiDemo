@@ -246,8 +246,9 @@ class MotionController:
                     # 检查是否完成一个循环（回到第一个位置）
                     if i == len(self.cycle_move_positions) - 1:
                         # 完成一个循环，输出脉冲信号
-                        logging.info("✅ 完成一个循环，输出完成信号")
+                        logging.info("✅ 完成一个循环")
                         if self.enable_gpio:
+                            logging.info(f"✅ 输出完成信号, GPIO:{self.cycle_complete_pin}")
                             self.gpio.output_pulse(self.cycle_complete_pin, duration=0.5)
                     
                     # 再次检查停止标志
