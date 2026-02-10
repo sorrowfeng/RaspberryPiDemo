@@ -52,12 +52,12 @@ class LHandProController:
         elif self.communication_mode == "ECAT":
             from ethercat_master import EthercatMaster
 
-    def _canfd_send_callback(self, data: bytes) -> bool:
+    def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
         """CANFD 发送回调函数"""
         if self.canfd and self.is_connected:
             try:
-                # CANFD消息ID可以根据实际需求调整
-                return self.canfd.send(0x500+1, data)
+                # 使用传入的msg_id作为CANFD消息ID
+                return self.canfd.send(msg_id, data)
             except Exception as e:
                 print(f"CANFD发送失败: {e}")
         return False
@@ -68,7 +68,7 @@ class LHandProController:
             if msg["id"] != 0x480+1:
                 return
             # 处理接收到的CANFD消息
-            self.lhp.set_canfd_data_decode(msg["data"])
+            self.lhp.set_canfd_data_decode(msg["id"], msg["data"])
     
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""

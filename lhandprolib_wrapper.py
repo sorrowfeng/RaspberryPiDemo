@@ -3,7 +3,7 @@ LHandProLib的Python面向对象封装
 """
 
 from typing import Optional, List, Tuple, Callable
-from ctypes import c_int, c_float, c_bool, c_char, c_char_p, POINTER, byref
+from ctypes import c_int, c_uint, c_float, c_bool, c_char, c_char_p, POINTER, byref
 
 from lhandprolib_loader import (
     get_global_lhandpro_lib,
@@ -99,12 +99,12 @@ class PyLHandProLib:
         self._callbacks['send_rpdo'] = wrapped_callback
         self._lib.lhandprolib_set_send_rpdo_callback(self._handle, wrapped_callback)
 
-    def set_send_canfd_callback(self, callback: Callable[[bytes], bool]) -> None:
+    def set_send_canfd_callback(self, callback: Callable[[int, bytes], bool]) -> None:
         """设置发送CANFD回调"""
 
-        def wrapper(data_ptr, length: int) -> bool:
+        def wrapper(msg_id: int, data_ptr, length: int) -> bool:
             data = bytes(data_ptr[:length])
-            return callback(data)
+            return callback(msg_id, data)
 
         wrapped_callback = CANFDSendDataCallbackWrapper(wrapper)
         self._callbacks['send_canfd'] = wrapped_callback
@@ -126,10 +126,10 @@ class PyLHandProLib:
         data_array = (c_char * len(data))(*data)
         return self._lib.lhandprolib_set_tpdo_data_decode(self._handle, data_array, len(data))
 
-    def set_canfd_data_decode(self, data: bytes) -> int:
+    def set_canfd_data_decode(self, msg_id: int, data: bytes) -> int:
         """设置CANFD数据解码"""
         data_array = (c_char * len(data))(*data)
-        return self._lib.lhandprolib_set_canfd_data_decode(self._handle, data_array, len(data))
+        return self._lib.lhandprolib_set_canfd_data_decode(self._handle, c_uint(msg_id), data_array, len(data))
 
     # RPDO数据处理
     def get_pre_send_rpdo_data(self) -> Tuple[bytes, int]:

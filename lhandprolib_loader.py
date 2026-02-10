@@ -72,7 +72,7 @@ LDR_HAND_LEFT = 1
 # 回调函数类型定义
 LogAddCallbackWrapper = ctypes.CFUNCTYPE(None, c_char_p)
 ECSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
-CANFDSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
+CANFDSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, c_uint, POINTER(c_char), c_uint)
 
 
 class LHandProLibLoader:
@@ -164,7 +164,7 @@ class LHandProLibLoader:
         self._lib.lhandprolib_set_tpdo_data_decode.argtypes = [c_void_p, POINTER(c_char), c_int]
         
         self._lib.lhandprolib_set_canfd_data_decode.restype = c_int
-        self._lib.lhandprolib_set_canfd_data_decode.argtypes = [c_void_p, POINTER(c_char), c_int]        
+        self._lib.lhandprolib_set_canfd_data_decode.argtypes = [c_void_p, c_uint, POINTER(c_char), c_int]        
 
         # RPDO数据处理
         self._lib.lhandprolib_get_pre_send_rpdo_data.restype = c_int
