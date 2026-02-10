@@ -184,6 +184,13 @@ class PyLHandProLib:
         self._check_error(result, "获取手部方向")
         return direction.value
 
+    def get_hand_type(self) -> int:
+        """获取手类型"""
+        hand_type = c_int()
+        result = self._lib.lhandprolib_get_hand_type(self._handle, byref(hand_type))
+        self._check_error(result, "获取手类型")
+        return hand_type.value
+
     def set_move_no_home(self, move_no_home: int) -> None:
         """设置是否不回零"""
         result = self._lib.lhandprolib_set_move_no_home(self._handle, move_no_home)
@@ -231,6 +238,13 @@ class PyLHandProLib:
         reached = c_int()
         result = self._lib.lhandprolib_get_position_reached(self._handle, motor_id, byref(reached))
         self._check_error(result, "获取位置到达状态")
+        return bool(reached.value)
+
+    def get_torque_reached(self, motor_id: int) -> bool:
+        """获取力矩到达状态"""
+        reached = c_int()
+        result = self._lib.lhandprolib_get_torque_reached(self._handle, motor_id, byref(reached))
+        self._check_error(result, "获取力矩到达状态")
         return bool(reached.value)
 
     def set_clear_alarm(self, motor_id: int) -> None:
@@ -366,6 +380,24 @@ class PyLHandProLib:
         return current.value
 
     # 触觉传感器
+    def set_sensor_enable(self, enable: bool) -> None:
+        """设置传感器启用状态"""
+        result = self._lib.lhandprolib_set_sensor_enable(self._handle, int(enable))
+        self._check_error(result, "设置传感器启用状态")
+
+    def set_sensor_data_format(self, format: int) -> None:
+        """设置传感器数据格式"""
+        result = self._lib.lhandprolib_set_sensor_data_format(self._handle, format)
+        self._check_error(result, "设置传感器数据格式")
+
+    def set_sensor_order(self, order: List[int]) -> None:
+        """设置传感器顺序"""
+        if len(order) != 6:
+            raise ValueError("传感器顺序数组长度必须为6")
+        order_array = (c_int * 6)(*order)
+        result = self._lib.lhandprolib_set_sensor_order(self._handle, order_array, 6)
+        self._check_error(result, "设置传感器顺序")
+
     def get_finger_sensor_pos(self, sensor_id: int) -> Tuple[List[float], List[float]]:
         """获取手指传感器位置数据"""
         x_ptr = POINTER(c_float)()
@@ -398,6 +430,54 @@ class PyLHandProLib:
         """重置手指压力"""
         result = self._lib.lhandprolib_set_finger_pressure_reset(self._handle)
         self._check_error(result, "重置手指压力")
+
+    def get_finger_normal_force_ex(self, sensor_id: int) -> List[float]:
+        """获取手指法向力数组"""
+        force_ptr = POINTER(c_float)()
+        count = c_int()
+
+        result = self._lib.lhandprolib_get_finger_normal_force_ex(
+            self._handle, sensor_id, byref(force_ptr), byref(count)
+        )
+        self._check_error(result, "获取手指法向力数组")
+
+        return [force_ptr[i] for i in range(count.value)]
+
+    def get_finger_tangential_force_ex(self, sensor_id: int) -> List[float]:
+        """获取手指切向力数组"""
+        force_ptr = POINTER(c_float)()
+        count = c_int()
+
+        result = self._lib.lhandprolib_get_finger_tangential_force_ex(
+            self._handle, sensor_id, byref(force_ptr), byref(count)
+        )
+        self._check_error(result, "获取手指切向力数组")
+
+        return [force_ptr[i] for i in range(count.value)]
+
+    def get_finger_force_direction_ex(self, sensor_id: int) -> List[float]:
+        """获取手指力方向数组"""
+        direction_ptr = POINTER(c_float)()
+        count = c_int()
+
+        result = self._lib.lhandprolib_get_finger_force_direction_ex(
+            self._handle, sensor_id, byref(direction_ptr), byref(count)
+        )
+        self._check_error(result, "获取手指力方向数组")
+
+        return [direction_ptr[i] for i in range(count.value)]
+
+    def get_finger_proximity_ex(self, sensor_id: int) -> List[float]:
+        """获取手指接近度数组"""
+        proximity_ptr = POINTER(c_float)()
+        count = c_int()
+
+        result = self._lib.lhandprolib_get_finger_proximity_ex(
+            self._handle, sensor_id, byref(proximity_ptr), byref(count)
+        )
+        self._check_error(result, "获取手指接近度数组")
+
+        return [proximity_ptr[i] for i in range(count.value)]
 
     def get_finger_normal_force(self, sensor_id: int) -> float:
         """获取手指法向力"""

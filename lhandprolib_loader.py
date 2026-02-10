@@ -180,6 +180,9 @@ class LHandProLibLoader:
         self._lib.lhandprolib_set_hand_type.restype = c_int
         self._lib.lhandprolib_set_hand_type.argtypes = [c_void_p, c_int]
 
+        self._lib.lhandprolib_get_hand_type.restype = c_int
+        self._lib.lhandprolib_get_hand_type.argtypes = [c_void_p, POINTER(c_int)]
+
         self._lib.lhandprolib_set_hand_direction.restype = c_int
         self._lib.lhandprolib_set_hand_direction.argtypes = [c_void_p, c_int]
 
@@ -212,6 +215,7 @@ class LHandProLibLoader:
             ('lhandprolib_set_enable', [c_void_p, c_int, c_int]),
             ('lhandprolib_get_enable', [c_void_p, c_int, POINTER(c_int)]),
             ('lhandprolib_get_position_reached', [c_void_p, c_int, POINTER(c_int)]),
+            ('lhandprolib_get_torque_reached', [c_void_p, c_int, POINTER(c_int)]),
             ('lhandprolib_set_clear_alarm', [c_void_p, c_int]),
             ('lhandprolib_get_now_alarm', [c_void_p, c_int, POINTER(c_int)]),
             ('lhandprolib_home_motors', [c_void_p, c_int]),
@@ -283,7 +287,30 @@ class LHandProLibLoader:
             c_void_p, c_int, POINTER(POINTER(c_float)), POINTER(c_int)
         ]
 
+        self._lib.lhandprolib_get_finger_normal_force_ex.restype = c_int
+        self._lib.lhandprolib_get_finger_normal_force_ex.argtypes = [
+            c_void_p, c_int, POINTER(POINTER(c_float)), POINTER(c_int)
+        ]
+
+        self._lib.lhandprolib_get_finger_tangential_force_ex.restype = c_int
+        self._lib.lhandprolib_get_finger_tangential_force_ex.argtypes = [
+            c_void_p, c_int, POINTER(POINTER(c_float)), POINTER(c_int)
+        ]
+
+        self._lib.lhandprolib_get_finger_force_direction_ex.restype = c_int
+        self._lib.lhandprolib_get_finger_force_direction_ex.argtypes = [
+            c_void_p, c_int, POINTER(POINTER(c_float)), POINTER(c_int)
+        ]
+
+        self._lib.lhandprolib_get_finger_proximity_ex.restype = c_int
+        self._lib.lhandprolib_get_finger_proximity_ex.argtypes = [
+            c_void_p, c_int, POINTER(POINTER(c_float)), POINTER(c_int)
+        ]
+
         functions = [
+            ('lhandprolib_set_sensor_enable', [c_void_p, c_int]),
+            ('lhandprolib_set_sensor_data_format', [c_void_p, c_int]),
+            ('lhandprolib_set_sensor_order', [c_void_p, POINTER(c_int), c_int]),
             ('lhandprolib_set_finger_pressure_reset', [c_void_p]),
             ('lhandprolib_get_finger_normal_force', [c_void_p, c_int, POINTER(c_float)]),
             ('lhandprolib_get_finger_tangential_force', [c_void_p, c_int, POINTER(c_float)]),
