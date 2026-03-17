@@ -15,27 +15,18 @@ DEFAULT_USE_ECAT_MODE = False
 CURRENT_HAND_TYPE = LAC_DOF_6
 
 # 默认回零时间（秒）
-DEFAULT_HOME_TIME = 5.0
+DEFAULT_HOME_TIME = 5
 # 默认循环运动次数
-DEFAULT_CYCLE_COUNT = 9999999
+DEFAULT_CYCLE_COUNT = 5000
 # 默认循环运动速度
 DEFAULT_CYCLE_VELOCITY = 20000
 # 默认循环运动间隔（秒）
-DEFAULT_CYCLE_INTERVAL = 0.7
+DEFAULT_CYCLE_INTERVAL = 0.8
 # 默认循环运动最大电流
 DEFAULT_CYCLE_CURRENT = 1000
 # 循环运动位置序列
 CYCLE_MOVE_POSITIONS = [
-    [10000, 0, 0, 0, 0, 0],
-    [0, 10000, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0],
-    [0, 0, 10000, 0, 0, 0],
-    [0, 0, 0, 10000, 0, 0],
-    [0, 0, 0, 0, 10000, 0],
-    [0, 0, 0, 0, 0, 10000],
-    [0, 0, 0, 0, 10000, 0],
-    [0, 0, 0, 10000, 0, 0],
-    [0, 0, 10000, 0, 0, 0],
+    [10000, 10000, 10000, 10000, 10000, 10000],
     [0, 0, 0, 0, 0, 0]
 ]
 # 循环结束的动作
@@ -43,8 +34,8 @@ CYCLE_FINISH_POSITION = [0, 0, 0, 0, 0, 0]
 # 开机自动循环运动
 AUTO_CYCLE_RUNNING = True
 # 是否启用循环时的报警检测
-ENABLE_ALARM_CHECK = True
+ENABLE_ALARM_CHECK = False
 # 是否启用回零完成检测
-ENABLE_HOME_CHECK = True
+ENABLE_HOME_CHECK = False
 # 是否启用扭矩到位停止
 ENABLE_TORQUE_CONTROL = False

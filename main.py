@@ -22,7 +22,8 @@ from config import (
     DEFAULT_CYCLE_CURRENT,
     CYCLE_MOVE_POSITIONS,
     CYCLE_FINISH_POSITION,
-    ENABLE_ALARM_CHECK
+    ENABLE_ALARM_CHECK,
+    AUTO_CYCLE_RUNNING
 )
 try:
     import RPi.GPIO as GPIO
@@ -481,8 +482,9 @@ class MotionController:
                 self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
             
             # 自动开始循环运动
-            logging.info("🚀 自动开始执行循环运动")
-            self.on_start_motion()
+            if AUTO_CYCLE_RUNNING:
+                logging.info("🚀 自动开始执行循环运动")
+                self.on_start_motion()
         else:
             logging.error("❌ 设备自动连接失败")
             

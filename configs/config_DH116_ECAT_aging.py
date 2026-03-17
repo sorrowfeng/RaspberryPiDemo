@@ -33,6 +33,8 @@ CYCLE_MOVE_POSITIONS = [
 ]
 # 循环结束的动作
 CYCLE_FINISH_POSITION = [2500, 5000, 5000, 0, 0, 0]
+# 开机自动循环运动
+AUTO_CYCLE_RUNNING = True
 # 是否启用循环时的报警检测
 ENABLE_ALARM_CHECK = True
 # 是否启用回零完成检测
