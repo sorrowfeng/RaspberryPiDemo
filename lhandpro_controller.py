@@ -8,7 +8,7 @@ import threading
 from typing import Optional, List, Tuple
 from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
-from config import CURRENT_HAND_TYPE, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
+from config import CURRENT_HAND_TYPE, CANFD_NODE_ID, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
 
 
 class LHandProController:
@@ -239,7 +239,7 @@ class LHandProController:
         self.lhp.set_send_canfd_callback(self._canfd_send_callback)      
 
         # 初始化LHandProLib为CANFD模式
-        self.lhp.initial(LCN_CANFD)
+        self.lhp.initial_ex(LCN_CANFD, CANFD_NODE_ID)
         
         # 执行通用初始化步骤
         return self._common_initialization(enable_motors, home_motors, home_wait_time)

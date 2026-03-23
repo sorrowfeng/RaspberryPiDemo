@@ -10,7 +10,7 @@ from lhandprolib_loader import (
     LER_NONE, LER_PARAMETER, LER_KEY_FUNC_UNINIT, LER_GET_CONFIGURATION,
     LER_DATA_ANOMALY, LER_COMM_CONNECT, LER_COMM_SEND, LER_COMM_RECV,
     LER_COMM_DATA_FORMAT, LER_INVALID_PATH, LER_LOG_SAVE_FAIL, LER_NOT_HOME, LER_UNKNOWN,
-    LAC_DOF_6, LAC_DOF_6_S, LAC_DOF_15,
+    LAC_DOF_6, LAC_DOF_6_S, LAC_DOF_16,
     LCN_ECAT, LCN_CANFD, LCN_RS485,
     LCM_POSITION, LCM_VELOCITY, LCM_TORQUE, LCM_VEL_TOR, LCM_POS_TOR, LCM_HOME,
     LST_STOPPED, LST_RUNNING, LST_ALARM, LST_POS_LIMIT, LST_NEG_LIMIT,
@@ -19,7 +19,8 @@ from lhandprolib_loader import (
     LSS_FINGER_3_1, LSS_FINGER_3_2, LSS_FINGER_4_1, LSS_FINGER_4_2,
     LSS_FINGER_5_1, LSS_FINGER_5_2, LSS_HAND_PALM, LSS_MAX_COUNT,
     LDR_HAND_RIGHT, LDR_HAND_LEFT,
-    LogAddCallbackWrapper, ECSendDataCallbackWrapper, CANFDSendDataCallbackWrapper
+    LogAddCallbackWrapper, ECSendDataCallbackWrapper, CANFDSendDataCallbackWrapper,
+    RS485SendDataCallbackWrapper
 )
 
 
@@ -83,6 +84,11 @@ class PyLHandProLib:
         result = self._lib.lhandprolib_initial(self._handle, mode)
         self._check_error(result, "初始化")
 
+    def initial_ex(self, mode: int, node_id: int) -> None:
+        """初始化库（扩展版本，包含节点ID）"""
+        result = self._lib.lhandprolib_initial_ex(self._handle, mode, node_id)
+        self._check_error(result, "initial_ex")
+
     def close(self) -> None:
         """关闭库"""
         self._lib.lhandprolib_close(self._handle)
@@ -110,6 +116,17 @@ class PyLHandProLib:
         self._callbacks['send_canfd'] = wrapped_callback
         self._lib.lhandprolib_set_send_canfd_callback(self._handle, wrapped_callback)
 
+    def set_send_rs485_callback(self, callback: Callable[[bytes], bool]) -> None:
+        """设置发送RS485回调"""
+
+        def wrapper(data_ptr, length: int) -> bool:
+            data = bytes(data_ptr[:length])
+            return callback(data)
+
+        wrapped_callback = RS485SendDataCallbackWrapper(wrapper)
+        self._callbacks['send_rs485'] = wrapped_callback
+        self._lib.lhandprolib_set_send_rs485_callback(self._handle, wrapped_callback)
+
     def set_log_callback(self, callback: Callable[[str], None]) -> None:
         """设置日志回调"""
 
@@ -130,6 +147,11 @@ class PyLHandProLib:
         """设置CANFD数据解码"""
         data_array = (c_char * len(data))(*data)
         return self._lib.lhandprolib_set_canfd_data_decode(self._handle, c_uint(msg_id), data_array, len(data))
+
+    def set_rs485_data_decode(self, data: bytes) -> int:
+        """设置RS485数据解码"""
+        data_array = (c_char * len(data))(*data)
+        return self._lib.lhandprolib_set_rs485_data_decode(self._handle, data_array, len(data))
 
     # RPDO数据处理
     def get_pre_send_rpdo_data(self) -> Tuple[bytes, int]:
@@ -155,6 +177,19 @@ class PyLHandProLib:
             self._handle, data_buffer, byref(io_size)
         )
         self._check_error(result, "获取CANFD数据")
+
+        return bytes(data_buffer[:io_size.value]), io_size.value
+
+    def get_pre_send_rs485_data(self) -> Tuple[bytes, int]:
+        """获取预发送RS485数据"""
+        buffer_size = 1024
+        data_buffer = (c_char * buffer_size)()
+        io_size = c_int(buffer_size)
+
+        result = self._lib.lhandprolib_get_pre_send_rs485_data(
+            self._handle, data_buffer, byref(io_size)
+        )
+        self._check_error(result, "获取RS485数据")
 
         return bytes(data_buffer[:io_size.value]), io_size.value
 

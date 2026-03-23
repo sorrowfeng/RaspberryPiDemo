@@ -26,7 +26,7 @@ LER_UNKNOWN = 999
 # 型号枚举
 LAC_DOF_6 = 0
 LAC_DOF_6_S = 1
-LAC_DOF_15 = 2
+LAC_DOF_16 = 2
 
 # 通讯类型枚举
 LCN_ECAT = 0
@@ -73,6 +73,7 @@ LDR_HAND_LEFT = 1
 LogAddCallbackWrapper = ctypes.CFUNCTYPE(None, c_char_p)
 ECSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
 CANFDSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, c_uint, POINTER(c_char), c_uint)
+RS485SendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
 
 
 class LHandProLibLoader:
@@ -102,6 +103,7 @@ class LHandProLibLoader:
         # 尝试在常见位置查找库文件
         lib_paths = [
             Path(__file__).parent / lib_name,
+            Path(__file__).parent / "lib" / lib_name,
             Path(__file__).parent / "thirdParty/bin" / lib_name,
             Path(__file__).parent / "thirdParty/lib" / lib_name,
             Path(__file__).parent / "../../../../bin" / lib_name,
@@ -155,6 +157,22 @@ class LHandProLibLoader:
         
         self._lib.lhandprolib_set_send_canfd_callback.restype = None
         self._lib.lhandprolib_set_send_canfd_callback.argtypes = [c_void_p, CANFDSendDataCallbackWrapper]
+
+        # RS485回调设置
+        self._lib.lhandprolib_set_send_rs485_callback.restype = None
+        self._lib.lhandprolib_set_send_rs485_callback.argtypes = [c_void_p, RS485SendDataCallbackWrapper]
+
+        # RS485数据解码
+        self._lib.lhandprolib_set_rs485_data_decode.restype = c_int
+        self._lib.lhandprolib_set_rs485_data_decode.argtypes = [c_void_p, POINTER(c_char), c_int]
+
+        # RS485预发送数据
+        self._lib.lhandprolib_get_pre_send_rs485_data.restype = c_int
+        self._lib.lhandprolib_get_pre_send_rs485_data.argtypes = [c_void_p, POINTER(c_char), POINTER(c_int)]
+
+        # 扩展初始化函数 (带node_id)
+        self._lib.lhandprolib_initial_ex.restype = c_int
+        self._lib.lhandprolib_initial_ex.argtypes = [c_void_p, c_int, c_int]
 
         self._lib.lhandprolib_set_log_callback.restype = None
         self._lib.lhandprolib_set_log_callback.argtypes = [c_void_p, LogAddCallbackWrapper]
