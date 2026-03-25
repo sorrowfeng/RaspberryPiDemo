@@ -9,7 +9,7 @@ from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
 DEFAULT_COMMUNICATION_MODE = "RS485"
 
 # 默认启动脚本数量
-DEFAULT_LAUNCH_COUNT = 1
+DEFAULT_LAUNCH_COUNT = 4
 
 # 手型类型配置
 # 可选值: LAC_DOF_6 或 LAC_DOF_6_S
