@@ -60,7 +60,7 @@ RaspberryPiDemo/
 ├── udp_receiver.py           # UDP 手套数据接收器
 ├── canfd_lib.py              # CANFD 通信库封装
 ├── ethercat_master.py        # EtherCAT 主站库封装（pysoem）
-├── serial_port.py            # RS485 串口封装（pyserial）
+├── serial_port.py            # RS485 串口封装（pyserial，队列发送 + 50ms 接收窗口粘包处理）
 ├── lhandprolib_wrapper.py    # LHandProLib C 库的 Python OOP 封装
 ├── lhandprolib_loader.py     # 动态库跨平台加载器（Win/Linux/Mac）
 ├── config.py                 # 主配置文件（运动参数、位置序列等）
@@ -111,6 +111,9 @@ sudo python3 launch.py
 sudo python3 launch.py -m ECAT -n 1
 sudo python3 launch.py -m RS485 -n 1
 sudo python3 launch.py -m CANFD -n 4
+
+# RS485 多设备（4 台手，分别占用 ttyUSB0~3）
+sudo python3 launch.py -m RS485 -n 4
 ```
 
 ### launch.py 命令行参数
@@ -125,7 +128,7 @@ sudo python3 launch.py -m CANFD -n 4
 | 参数 | 简写 | 描述 | 默认值 |
 |------|------|------|--------|
 | `--device-index` | `-i` | 设备索引（0-3），多进程时自动传入 | 自动选择 |
-| `--communication-mode` | `-m` | 通信模式（CANFD/ECAT/RS485） | ECAT |
+| `--communication-mode` | `-m` | 通信模式（CANFD/ECAT/RS485） | 未指定时交互输入选择 |
 | `--enable-gpio` | `-g` | 启用 GPIO 控制 | True |
 | `--no-enable-gpio` | - | 禁用 GPIO 控制 | - |
 
@@ -152,6 +155,22 @@ controller.connect(
     rs485_port_name="/dev/ttyUSB0",
     rs485_node_id=2,                          # 非默认节点 ID 时指定
 )
+```
+
+### RS485 多设备串口映射
+
+通过 `launch.py -n 4` 启动 4 个进程时，`launch.py` 自动为每个子进程传入 `--device-index=0/1/2/3`。
+`_connect_rs485()` 在扫描到串口列表后，**按索引直接选择对应串口**，无需人工干预：
+
+| device-index | 自动选择串口 |
+|:---:|:---:|
+| 0 | ttyUSB0（扫描列表第 0 项） |
+| 1 | ttyUSB1（扫描列表第 1 项） |
+| 2 | ttyUSB2（扫描列表第 2 项） |
+| 3 | ttyUSB3（扫描列表第 3 项） |
+
+> Linux 下串口扫描只显示 `ttyUSB` / `ttyACM` 设备，自动过滤板载 UART（如 `ttyAMA0`）。
+> 若指定了 `RS485_PORT_NAME`，所有进程均使用该固定串口（适合单设备场景）。
 ```
 
 ## 硬件连接
@@ -197,7 +216,7 @@ controller.connect(
 | 参数 | 说明 |
 |------|------|
 | `DEFAULT_COMMUNICATION_MODE` | 默认通信模式（`"CANFD"` / `"ECAT"` / `"RS485"`） |
-| `DEFAULT_LAUNCH_COUNT` | 默认启动脚本数量（CANFD 多设备通常为 4，ECAT/RS485 通常为 1） |
+| `DEFAULT_LAUNCH_COUNT` | 默认启动脚本数量（CANFD/RS485 多设备通常为 4，ECAT 通常为 1） |
 | `CANFD_NODE_ID` | CANFD 节点 ID |
 | `RS485_PORT_NAME` | RS485 串口名称，`None` 表示启动时自动扫描选择 |
 | `DEFAULT_HOME_TIME` | 回零等待时间（秒） |
