@@ -55,7 +55,7 @@ class SerialPort:
         except Exception as e:
             print(f"扫描串口失败: {e}")
 
-        # ttyXRUSB 设备使用沁恒私有驱动，不在 pyserial 的 comports() 列表中
+        # ttyXRUSB 设备使用私有驱动，不在 pyserial 的 comports() 列表中
         # 直接用 glob 补充扫描
         if sys.platform.startswith('linux'):
             for device in sorted(glob.glob('/dev/ttyXRUSB*')):

@@ -9,7 +9,6 @@ from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
 DEFAULT_COMMUNICATION_MODE = "RS485"
 
 # 默认启动脚本数量
-# CANFD/RS485 多设备场景通常为 4，ECAT 单设备场景通常为 1
 DEFAULT_LAUNCH_COUNT = 4
 
 # 手型类型配置
@@ -20,7 +19,7 @@ CURRENT_HAND_TYPE = LAC_DOF_6
 CANFD_NODE_ID = 1
 
 # RS485配置
-RS485_PORT_NAME = None   # None表示自动扫描选择，也可指定如 'COM3' 或 '/dev/ttyUSB0'
+RS485_PORT_NAME = None
 
 # 默认回零时间（秒）
 DEFAULT_HOME_TIME = 5.0
@@ -34,20 +33,13 @@ DEFAULT_CYCLE_INTERVAL = 0.7
 DEFAULT_CYCLE_CURRENT = 1000
 # 循环运动位置序列
 CYCLE_MOVE_POSITIONS = [
-    [10000, 0, 0, 0, 0, 0],
-    [0, 10000, 0, 0, 0, 0],
+    [10000, 10000, 0, 0, 0, 0],
     [0, 0, 0, 0, 0, 0],
-    [0, 0, 10000, 0, 0, 0],
-    [0, 0, 0, 10000, 0, 0],
-    [0, 0, 0, 0, 10000, 0],
-    [0, 0, 0, 0, 0, 10000],
-    [0, 0, 0, 0, 10000, 0],
-    [0, 0, 0, 10000, 0, 0],
-    [0, 0, 10000, 0, 0, 0],
+    [0, 0, 10000, 10000, 10000, 10000],
     [0, 0, 0, 0, 0, 0]
 ]
 # 循环结束的动作
-CYCLE_FINISH_POSITION = [0, 0, 0, 0, 0, 0]
+CYCLE_FINISH_POSITION = [2500, 5000, 5000, 0, 0, 0]
 # 开机自动循环运动
 AUTO_CYCLE_RUNNING = True
 # 是否启用循环时的报警检测
