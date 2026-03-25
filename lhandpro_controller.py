@@ -176,6 +176,7 @@ class LHandProController:
                     port_name=rs485_port_name,
                     baud_rate=rs485_baud_rate,
                     node_id=rs485_node_id,
+                    device_index=device_index,
                 )
 
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
@@ -377,7 +378,7 @@ class LHandProController:
         # 执行通用初始化步骤
         return self._common_initialization(enable_motors, home_motors, home_wait_time)
     
-    def _connect_rs485(self, enable_motors, home_motors, home_wait_time, port_name, baud_rate, node_id):
+    def _connect_rs485(self, enable_motors, home_motors, home_wait_time, port_name, baud_rate, node_id, device_index=None):
         """使用RS485模式连接设备"""
         from serial_port import SerialPort
         self.serial_port = SerialPort()
@@ -398,7 +399,18 @@ class LHandProController:
             for i, port in enumerate(available_ports):
                 print(f"  [{i}] {port}")
 
-            if len(available_ports) == 1:
+            if device_index is not None:
+                # 多进程场景：用 device_index 直接映射到对应串口
+                if device_index < len(available_ports):
+                    port_name = available_ports[device_index]
+                    print(f"根据设备索引 {device_index} 自动选择串口: {port_name}")
+                else:
+                    print(f"设备索引 {device_index} 超出可用串口数量 {len(available_ports)}")
+                    self.lhp.close()
+                    self.lhp = None
+                    self.serial_port = None
+                    return False
+            elif len(available_ports) == 1:
                 port_name = available_ports[0]
                 print(f"自动选择唯一可用串口: {port_name}")
             else:

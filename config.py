@@ -9,8 +9,8 @@ from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
 DEFAULT_COMMUNICATION_MODE = "RS485"
 
 # 默认启动脚本数量
-# CANFD 多设备场景通常为 4，ECAT / RS485 单设备场景通常为 1
-DEFAULT_LAUNCH_COUNT = 1
+# CANFD/RS485 多设备场景通常为 4，ECAT 单设备场景通常为 1
+DEFAULT_LAUNCH_COUNT = 4
 
 # 手型类型配置
 # 可选值: LAC_DOF_6 或 LAC_DOF_6_S
@@ -25,7 +25,7 @@ RS485_PORT_NAME = None   # None表示自动扫描选择，也可指定如 'COM3'
 # 默认回零时间（秒）
 DEFAULT_HOME_TIME = 5.0
 # 默认循环运动次数
-DEFAULT_CYCLE_COUNT = 9999999
+DEFAULT_CYCLE_COUNT = 10000
 # 默认循环运动速度
 DEFAULT_CYCLE_VELOCITY = 20000
 # 默认循环运动间隔（秒）

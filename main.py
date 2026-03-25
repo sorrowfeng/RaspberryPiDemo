@@ -23,7 +23,8 @@ from config import (
     CYCLE_MOVE_POSITIONS,
     CYCLE_FINISH_POSITION,
     ENABLE_ALARM_CHECK,
-    AUTO_CYCLE_RUNNING
+    AUTO_CYCLE_RUNNING,
+    RS485_PORT_NAME,
 )
 try:
     import RPi.GPIO as GPIO
@@ -189,11 +190,12 @@ class MotionController:
         # 自动连接设备并开始循环运动
         logging.info("🔍 正在尝试自动连接设备...")
         if self.controller.connect(
-                enable_motors=True, 
-                home_motors=True, 
+                enable_motors=True,
+                home_motors=True,
                 home_wait_time=DEFAULT_HOME_TIME,
-                device_index=self.device_index, 
-                auto_select=self.device_index is None):
+                device_index=self.device_index,
+                auto_select=self.device_index is None,
+                rs485_port_name=RS485_PORT_NAME):
             logging.info("✅ 设备自动连接成功")
             if self.enable_gpio:
                 self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
@@ -467,7 +469,8 @@ class MotionController:
                 home_motors=True,
                 home_wait_time=DEFAULT_HOME_TIME,
                 device_index=self.device_index,
-                auto_select=self.device_index is None):
+                auto_select=self.device_index is None,
+                rs485_port_name=RS485_PORT_NAME):
             logging.info("✅ 设备自动连接成功")
             if self.enable_gpio:
                 self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
