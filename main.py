@@ -547,8 +547,8 @@ def main():
     parser.add_argument('--communication-mode', '-m',
                       type=str,
                       default='ECAT',
-                      choices=['CANFD', 'ECAT'],
-                      help='设备通信模式（可选值：CANFD、ECAT）')
+                      choices=['CANFD', 'ECAT', 'RS485'],
+                      help='设备通信模式（可选值：CANFD、ECAT、RS485）')
     
     # 添加GPIO启用参数
     parser.add_argument('--enable-gpio', '-g',

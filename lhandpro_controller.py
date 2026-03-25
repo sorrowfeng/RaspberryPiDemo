@@ -1,56 +1,61 @@
 """
-LHandPro 控制器封装类 - 支持ECAT和CANFD双模式
+LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式
 提供连接、断开、运动控制等功能
 """
 
 import time
 import threading
 from typing import Optional, List, Tuple
-from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LAC_DOF_6, LAC_DOF_6_S
+from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LCN_RS485, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
-from config import CURRENT_HAND_TYPE, CANFD_NODE_ID, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
+from config import CURRENT_HAND_TYPE, CANFD_NODE_ID, RS485_PORT_NAME, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
 
 
 class LHandProController:
-    """LHandPro 控制器封装类 - 支持ECAT和CANFD双模式"""
+    """LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式"""
 
     def __init__(self, communication_mode: str):
         """初始化控制器
-        
+
         Args:
-            communication_mode: 通信模式，可选值为 "CANFD" 或 "ECAT"
+            communication_mode: 通信模式，可选值为 "CANFD"、"ECAT" 或 "RS485"
         """
         self.lhp: Optional[PyLHandProLib] = None
-        
+
         # CANFD 相关属性
         self.canfd = None
-        
+
         # ECAT 相关属性
         self.ec_master = None
         self.stop_flag = None
         self.monitor_thread = None
-        
+
+        # RS485 相关属性
+        self.serial_port = None
+
         # 通用属性
         self.is_connected = False
         self.dof_total = 0
         self.dof_active = 0
         self.communication_mode = communication_mode.upper()
-        
+
         # 验证通信模式
-        if self.communication_mode not in ["CANFD", "ECAT"]:
-            raise ValueError(f"不支持的通信模式: {self.communication_mode}，请使用 'CANFD' 或 'ECAT'")
-        
+        if self.communication_mode not in ["CANFD", "ECAT", "RS485"]:
+            raise ValueError(f"不支持的通信模式: {self.communication_mode}，请使用 'CANFD'、'ECAT' 或 'RS485'")
+
         # 根据通信模式动态导入所需库
         self._import_communication_libs()
     
     def _import_communication_libs(self):
         """根据通信模式导入所需的库"""
-        global CANFD, EthercatMaster
-        
+        global CANFD, EthercatMaster, SerialPort
+
         if self.communication_mode == "CANFD":
             from canfd_lib import CANFD
         elif self.communication_mode == "ECAT":
             from ethercat_master import EthercatMaster
+        elif self.communication_mode == "RS485":
+            from serial_port import SerialPort
 
     def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
         """CANFD 发送回调函数"""
@@ -70,6 +75,20 @@ class LHandProController:
             # 处理接收到的CANFD消息
             self.lhp.set_canfd_data_decode(msg["id"], msg["data"])
     
+    def _rs485_send_callback(self, data: bytes) -> bool:
+        """RS485 发送回调函数"""
+        if self.serial_port and self.is_connected:
+            try:
+                return self.serial_port.write(data) > 0
+            except Exception as e:
+                print(f"RS485发送失败: {e}")
+        return False
+
+    def _rs485_receive_callback(self, data: bytes):
+        """RS485 接收回调函数"""
+        if self.lhp and self.is_connected:
+            self.lhp.set_rs485_data_decode(data)
+
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
         if self.ec_master:
@@ -97,6 +116,10 @@ class LHandProController:
         # CANFD 特定参数
         canfd_nom_baudrate: int = 1000000,
         canfd_dat_baudrate: int = 5000000,
+        # RS485 特定参数
+        rs485_port_name: str = None,
+        rs485_baud_rate: int = 500000,
+        rs485_node_id: int = 1,
     ) -> bool:
         """
         连接并初始化 LHandPro 设备
@@ -105,7 +128,7 @@ class LHandProController:
             enable_motors: 是否自动使能电机
             home_motors: 是否自动回零
             home_wait_time: 回零等待时间（秒）
-            
+
             # CANFD 特定参数
             canfd_nom_baudrate: CANFD标称波特率
             canfd_dat_baudrate: CANFD数据波特率
@@ -113,13 +136,18 @@ class LHandProController:
                           （注意：通道固定为0）
             auto_select: 是否自动选择设备（当有多个设备时）
 
+            # RS485 特定参数
+            rs485_port_name: 串口名称，如 'COM1' 或 '/dev/ttyUSB0'，None则自动选择
+            rs485_baud_rate: 波特率，None则使用config中的RS485_BAUD_RATE
+            rs485_node_id: 节点ID，None则使用config中的RS485_NODE_ID
+
         Returns:
             bool: 连接是否成功
         """
         try:
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
-            
+
             retn = False
 
             if self.communication_mode == "CANFD":
@@ -137,8 +165,17 @@ class LHandProController:
                     enable_motors=enable_motors,
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
-                    channel_index=device_index, 
+                    channel_index=device_index,
                     auto_select=auto_select
+                )
+            elif self.communication_mode == "RS485":
+                retn = self._connect_rs485(
+                    enable_motors=enable_motors,
+                    home_motors=home_motors,
+                    home_wait_time=home_wait_time,
+                    port_name=rs485_port_name,
+                    baud_rate=rs485_baud_rate,
+                    node_id=rs485_node_id,
                 )
 
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
@@ -340,6 +377,69 @@ class LHandProController:
         # 执行通用初始化步骤
         return self._common_initialization(enable_motors, home_motors, home_wait_time)
     
+    def _connect_rs485(self, enable_motors, home_motors, home_wait_time, port_name, baud_rate, node_id):
+        """使用RS485模式连接设备"""
+        from serial_port import SerialPort
+        self.serial_port = SerialPort()
+
+        print("正在使用RS485通讯:")
+
+        # 选择串口
+        if port_name is None:
+            available_ports = self.serial_port.scan_available_ports()
+            if not available_ports:
+                print("未找到可用串口")
+                self.lhp.close()
+                self.lhp = None
+                self.serial_port = None
+                return False
+
+            print("\n可用串口列表:")
+            for i, port in enumerate(available_ports):
+                print(f"  [{i}] {port}")
+
+            while True:
+                try:
+                    user_input = input(f"\n请选择串口编号 [0-{len(available_ports) - 1}]: ")
+                    port_index = int(user_input)
+                    if 0 <= port_index < len(available_ports):
+                        port_name = available_ports[port_index]
+                        break
+                    print("请输入有效的编号")
+                except ValueError:
+                    print("请输入数字")
+
+        # 打开串口
+        print(f"正在打开串口 {port_name}，波特率: {baud_rate}bps")
+        if not self.serial_port.open(port_name, baud_rate):
+            print(f"打开串口失败: {port_name}")
+            self.lhp.close()
+            self.lhp = None
+            self.serial_port = None
+            return False
+
+        print("串口打开成功")
+        self.is_connected = True
+
+        # 设置发送回调
+        self.lhp.set_send_rs485_callback(self._rs485_send_callback)
+
+        # 设置接收回调
+        self.serial_port.set_read_callback(self._rs485_receive_callback)
+
+        # 初始化LHandProLib为RS485模式
+        print(f"正在初始化 (RS485, node_id={node_id}) ...")
+        try:
+            self.lhp.initial_ex(LCN_RS485, node_id)
+        except Exception as e:
+            print(f"初始化失败: {e}")
+            self.disconnect()
+            return False
+        print("初始化成功")
+
+        # 执行通用初始化步骤
+        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+
     def _common_initialization(self, enable_motors, home_motors, home_wait_time):
         """通用初始化步骤"""
         # 获取自由度
@@ -374,6 +474,9 @@ class LHandProController:
                 self.ec_master.stop()
                 time.sleep(0.1)
                 self.ec_master = None
+        elif self.communication_mode == "RS485" and self.serial_port:
+            self.serial_port.close()
+            self.serial_port = None
     
     def disconnect(self):
         """断开连接并清理资源"""

@@ -3,70 +3,50 @@ import subprocess
 import time
 import sys
 import argparse
-from config import DEFAULT_USE_ECAT_MODE
+from config import DEFAULT_COMMUNICATION_MODE, DEFAULT_LAUNCH_COUNT
 
 if __name__ == "__main__":
-    # 解析命令行参数
     parser = argparse.ArgumentParser(description="启动 LHandPro 设备")
-    parser.add_argument('--communication-mode', type=str, choices=['CANFD', 'ECAT'], 
-                        help='通信模式')
-    parser.add_argument('--ecat-mode', action='store_true', 
-                        help='使用ECAT模式（启动1个脚本）')
+    parser.add_argument('--communication-mode', '-m', type=str,
+                        choices=['CANFD', 'ECAT', 'RS485'],
+                        help='通信模式（覆盖 config 中的 DEFAULT_COMMUNICATION_MODE）')
+    parser.add_argument('--launch-count', '-n', type=int,
+                        help='启动脚本数量（覆盖 config 中的 DEFAULT_LAUNCH_COUNT）')
     args = parser.parse_args()
-    
-    print("启动 LHandPro 设备...")
-    
-    # 确定是否使用ECAT模式
-    # 优先级：命令行参数 --ecat-mode > 命令行参数 --communication-mode=ECAT > 默认宏
-    use_ecat_mode = DEFAULT_USE_ECAT_MODE
-    if args.communication_mode == 'ECAT':
-        use_ecat_mode = True
-    if args.ecat_mode:
-        use_ecat_mode = True
-    
-    # 根据操作系统决定是否使用sudo
+
+    communication_mode = args.communication_mode or DEFAULT_COMMUNICATION_MODE
+    launch_count = args.launch_count if args.launch_count is not None else DEFAULT_LAUNCH_COUNT
+
+    print(f"启动 LHandPro 设备... 通信模式: {communication_mode}, 启动数量: {launch_count}")
+
+    # 根据操作系统决定是否使用 sudo
     if sys.platform.startswith('win32'):
         python_cmd = ["python3"] if sys.executable.endswith('python3') else ["python"]
     else:
         python_cmd = ["sudo", "python3"]
-    
-    if use_ecat_mode:
-        # 启动1个脚本，使用ECAT通信模式
+
+    for i in range(launch_count):
         try:
-            # 构造命令
             cmd = python_cmd + [
                 "main.py",
-                "--communication-mode=ECAT"
+                f"--communication-mode={communication_mode}",
             ]
+            # 多实例时传入设备索引
+            if launch_count > 1:
+                cmd.append(f"--device-index={i}")
+
             process = subprocess.Popen(cmd)
-            
-            print(f"ECAT设备已启动，PID: {process.pid}")
+            label = f"设备 {i}" if launch_count > 1 else "设备"
+            print(f"{label} 已启动，PID: {process.pid}")
             time.sleep(1)
-            
+
         except Exception as e:
-            print(f"启动ECAT设备失败: {e}")
-    else:
-        # 启动4个脚本，使用CANFD通信模式
-        for i in range(4):
-            try:
-                # 构造命令
-                cmd = python_cmd + [
-                    "main.py",
-                    f"--device-index={i}",
-                    "--communication-mode=CANFD"
-                ]
-                process = subprocess.Popen(cmd)
-                
-                print(f"设备 {i} 已启动，PID: {process.pid}")
-                time.sleep(1)
-                
-            except Exception as e:
-                print(f"启动设备 {i} 失败: {e}")
-    
+            label = str(i) if launch_count > 1 else ""
+            print(f"启动设备 {label} 失败: {e}")
+
     print("所有设备启动完成，按 Ctrl+C 退出")
-    
+
     try:
-        # 保持脚本运行
         while True:
             time.sleep(1)
     except KeyboardInterrupt:

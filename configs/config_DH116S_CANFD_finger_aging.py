@@ -5,10 +5,11 @@
 from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
 
 
-# 宏定义：默认启动模式
-# True: 启动1个脚本，使用ECAT通信模式
-# False: 启动4个脚本，使用CANFD通信模式
-DEFAULT_USE_ECAT_MODE = False
+# 默认通信模式：CANFD / ECAT / RS485
+DEFAULT_COMMUNICATION_MODE = "CANFD"
+
+# 默认启动脚本数量
+DEFAULT_LAUNCH_COUNT = 4
 
 # 手型类型配置
 # 可选值: LAC_DOF_6 或 LAC_DOF_6_S
@@ -16,6 +17,9 @@ CURRENT_HAND_TYPE = LAC_DOF_6_S
 
 # CANFD NODE ID配置
 CANFD_NODE_ID = 1
+
+# RS485配置
+RS485_PORT_NAME = None
 
 # 默认回零时间（秒）
 DEFAULT_HOME_TIME = 5
