@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import os
 import subprocess
 import time
 import sys
 import argparse
 from config import DEFAULT_COMMUNICATION_MODE, DEFAULT_LAUNCH_COUNT
+
+# 切换到脚本所在目录，确保相对路径（main.py 等）可以正确找到
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="启动 LHandPro 设备")
