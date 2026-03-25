@@ -45,6 +45,6 @@ AUTO_CYCLE_RUNNING = True
 # 是否启用循环时的报警检测
 ENABLE_ALARM_CHECK = True
 # 是否启用回零完成检测
-ENABLE_HOME_CHECK = True
+ENABLE_HOME_CHECK = False
 # 是否启用扭矩到位停止
 ENABLE_TORQUE_CONTROL = False
