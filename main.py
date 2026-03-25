@@ -11,7 +11,7 @@ import argparse
 import logging
 from log import setup_logging
 from lhandpro_controller import LHandProController
-from gpio_controller import GPIOController, GPIO_PINS
+from gpio_controller import GPIOController, GPIO_PINS, GPIO_AVAILABLE
 from udp_receiver import UDPReceiver
 from udp_receiver import SimpleGloveData
 from config import (
@@ -37,9 +37,23 @@ class MotionController:
 
     def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
         self.controller = LHandProController(communication_mode=communication_mode)
-        self.gpio = GPIOController()
-        self.device_index = device_index  # 存储设备索引
-        self.enable_gpio = enable_gpio  # 保存GPIO启用状态
+        self.device_index = device_index
+        self.gpio = None
+
+        # RPi.GPIO 未安装时自动禁用 GPIO
+        if enable_gpio and not GPIO_AVAILABLE:
+            logging.warning("RPi.GPIO 未安装，GPIO 功能已自动禁用")
+            enable_gpio = False
+
+        # 尝试初始化 GPIO（非树莓派平台会失败）
+        if enable_gpio:
+            try:
+                self.gpio = GPIOController()
+            except RuntimeError as e:
+                logging.warning(f"GPIO 初始化失败，GPIO 功能已自动禁用: {e}")
+                enable_gpio = False
+
+        self.enable_gpio = enable_gpio
         
         # 根据device_index选择对应的CYCLE_COMPLETE引脚
         # 当device_index为0或None时，使用数组索引0的引脚；否则使用对应索引的引脚
@@ -70,10 +84,6 @@ class MotionController:
         """设置GPIO引脚和回调函数"""
         if not self.enable_gpio:
             return
-
-        # 设置输入引脚
-        if GPIO is None:
-            raise RuntimeError("RPi.GPIO 未安装")
         
         self.gpio.setup_input(
             GPIO_PINS.START_MOTION,
@@ -436,26 +446,9 @@ class MotionController:
         # 设置GPIO
         try:
             self.setup_gpio()
-        except RuntimeError as e:
-            error_msg = str(e)
-            if "Not running on a RPi" in error_msg or "不在树莓派" in error_msg:
-                logging.error("\n" + "="*60)
-                logging.error("❌ GPIO设置失败")
-                logging.error("="*60)
-                logging.error(str(e))
-                logging.error("\n提示:")
-                logging.error("  - 此程序必须在树莓派硬件上运行")
-                logging.error("  - 如果确实在树莓派上，请检查:")
-                logging.error("    1. 是否正确安装了 RPi.GPIO")
-                logging.error("    2. 是否有足够的权限 (sudo 或加入 gpio 组)")
-                logging.error("    3. GPIO 是否被其他程序占用")
-            else:
-                logging.error(f"❌ GPIO设置失败: {e}")
-            return -1
         except Exception as e:
-            logging.error(f"❌ GPIO设置失败: {e}")
-            logging.error("提示: 请确保在树莓派上运行，且已安装RPi.GPIO库")
-            return -1
+            logging.warning(f"GPIO 设置失败，GPIO 功能已禁用: {e}")
+            self.enable_gpio = False
         
         logging.info("\nGPIO功能说明:")
         logging.info(f"  GPIO {GPIO_PINS.START_MOTION}: 开始循环运动")
@@ -546,10 +539,10 @@ def main():
     # 添加通信模式参数
     parser.add_argument('--communication-mode', '-m',
                       type=str,
-                      default='ECAT',
+                      default=None,
                       choices=['CANFD', 'ECAT', 'RS485'],
-                      help='设备通信模式（可选值：CANFD、ECAT、RS485）')
-    
+                      help='设备通信模式（可选值：CANFD、ECAT、RS485），不指定则交互选择')
+
     # 添加GPIO启用参数
     parser.add_argument('--enable-gpio', '-g',
                       action='store_true',
@@ -559,9 +552,30 @@ def main():
                       action='store_false',
                       dest='enable_gpio',
                       help='禁用GPIO控制')
-    
+
     # 解析命令行参数
     args = parser.parse_args()
+
+    # 未指定通信模式时交互选择
+    if args.communication_mode is None:
+        modes = ['CANFD', 'ECAT', 'RS485']
+        print("请选择通信模式:")
+        for i, mode in enumerate(modes):
+            print(f"  [{i}] {mode}")
+        while True:
+            try:
+                choice = input(">>> ").strip()
+                if choice == "":
+                    args.communication_mode = modes[0]
+                    print(f"使用默认: {args.communication_mode}")
+                    break
+                idx = int(choice)
+                if 0 <= idx < len(modes):
+                    args.communication_mode = modes[idx]
+                    break
+                print(f"请输入 0 - {len(modes) - 1}")
+            except ValueError:
+                print("请输入数字")
     
     # 配置日志系统
     setup_logging()

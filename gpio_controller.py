@@ -81,8 +81,8 @@ class GPIOController:
         # 线程锁
         self.lock = threading.Lock()
 
-    def setup_input(self, pin: int, pull_up_down: int = GPIO.PUD_DOWN, 
-                   callback: Optional[Callable] = None, edge: int = GPIO.RISING,
+    def setup_input(self, pin: int, pull_up_down: int = None,
+                   callback: Optional[Callable] = None, edge: int = None,
                    debounce_ms: int = 300):
         """
         设置GPIO输入引脚
@@ -93,6 +93,11 @@ class GPIOController:
             callback: 触发时的回调函数
             edge: 触发边沿 (GPIO.RISING, GPIO.FALLING, GPIO.BOTH)
         """
+        if pull_up_down is None:
+            pull_up_down = GPIO.PUD_DOWN
+        if edge is None:
+            edge = GPIO.RISING
+
         if pin in self.input_pins:
             print(f"GPIO {pin} 已经设置为输入")
             return

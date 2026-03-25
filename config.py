@@ -6,11 +6,11 @@ from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
 
 
 # 默认通信模式：CANFD / ECAT / RS485
-DEFAULT_COMMUNICATION_MODE = "CANFD"
+DEFAULT_COMMUNICATION_MODE = "RS485"
 
 # 默认启动脚本数量
 # CANFD 多设备场景通常为 4，ECAT / RS485 单设备场景通常为 1
-DEFAULT_LAUNCH_COUNT = 4
+DEFAULT_LAUNCH_COUNT = 1
 
 # 手型类型配置
 # 可选值: LAC_DOF_6 或 LAC_DOF_6_S
@@ -53,6 +53,6 @@ AUTO_CYCLE_RUNNING = True
 # 是否启用循环时的报警检测
 ENABLE_ALARM_CHECK = True
 # 是否启用回零完成检测
-ENABLE_HOME_CHECK = True
+ENABLE_HOME_CHECK = False
 # 是否启用扭矩到位停止
 ENABLE_TORQUE_CONTROL = False

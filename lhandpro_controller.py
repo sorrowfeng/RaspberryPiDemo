@@ -398,16 +398,20 @@ class LHandProController:
             for i, port in enumerate(available_ports):
                 print(f"  [{i}] {port}")
 
-            while True:
-                try:
-                    user_input = input(f"\n请选择串口编号 [0-{len(available_ports) - 1}]: ")
-                    port_index = int(user_input)
-                    if 0 <= port_index < len(available_ports):
-                        port_name = available_ports[port_index]
-                        break
-                    print("请输入有效的编号")
-                except ValueError:
-                    print("请输入数字")
+            if len(available_ports) == 1:
+                port_name = available_ports[0]
+                print(f"自动选择唯一可用串口: {port_name}")
+            else:
+                while True:
+                    try:
+                        user_input = input(f"\n请选择串口编号 [0-{len(available_ports) - 1}]: ")
+                        port_index = int(user_input)
+                        if 0 <= port_index < len(available_ports):
+                            port_name = available_ports[port_index]
+                            break
+                        print("请输入有效的编号")
+                    except ValueError:
+                        print("请输入数字")
 
         # 打开串口
         print(f"正在打开串口 {port_name}，波特率: {baud_rate}bps")
