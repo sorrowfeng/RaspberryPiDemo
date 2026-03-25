@@ -19,6 +19,11 @@ if __name__ == "__main__":
 
     print(f"启动 LHandPro 设备... 通信模式: {communication_mode}, 启动数量: {launch_count}")
 
+    # RS485 模式下先配置所有 USB 转 485 设备
+    if communication_mode == "RS485":
+        print("RS485 模式：正在配置 USB 转 485 设备...")
+        subprocess.run([sys.executable, "setup_rs485_mode.py"])
+
     # 根据操作系统决定是否使用 sudo
     if sys.platform.startswith('win32'):
         python_cmd = ["python3"] if sys.executable.endswith('python3') else ["python"]
