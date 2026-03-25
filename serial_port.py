@@ -47,7 +47,8 @@ class SerialPort:
                 device = port.device
                 # Linux 下只显示 USB 串口设备（过滤掉板载 UART 如 ttyAMA0）
                 if sys.platform.startswith('linux'):
-                    if 'ttyUSB' not in device and 'ttyACM' not in device:
+                    USB_SERIAL_PREFIXES = ('ttyUSB', 'ttyACM', 'ttyXRUSB')
+                    if not any(p in device for p in USB_SERIAL_PREFIXES):
                         continue
                 ports.append(device)
         except Exception as e:
