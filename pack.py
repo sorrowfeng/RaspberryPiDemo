@@ -19,15 +19,15 @@ if __name__ == "__main__":
 
     cmd = [
         "7z", "a", output_path,
-        os.path.join(current_dir, "*"),
+        folder_name,
         "-xr!.git",
         "-xr!logs",
         "-xr!__pycache__",
-        "-x!lib/LHandProLib.dll",
+        f"-x!{folder_name}/lib/LHandProLib.dll",
     ]
 
     try:
-        result = subprocess.run(cmd, cwd=current_dir)
+        result = subprocess.run(cmd, cwd=parent_dir)
         if result.returncode == 0:
             print(f"✅ 打包成功: {output_path}")
         else:
