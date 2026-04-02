@@ -22,7 +22,10 @@ from config import (
     DEFAULT_CYCLE_CURRENT,
     CYCLE_MOVE_POSITIONS,
     CYCLE_FINISH_POSITION,
-    GRASP_POSITIONS,
+    GRASP_MODE,
+    GRASP_REPEAT_POSITIONS,
+    GRASP_GRIP_POSITIONS,
+    GRASP_RELEASE_POSITIONS,
     ENABLE_ALARM_CHECK,
     AUTO_CYCLE_RUNNING,
     RS485_PORT_NAME,
@@ -69,8 +72,11 @@ class MotionController:
         # 定义循环运动位置序列
         self.cycle_move_positions = CYCLE_MOVE_POSITIONS
 
-        # 定义抓握位置
-        self.grasp_positions = GRASP_POSITIONS
+        # 定义抓握位置序列
+        self.grasp_mode = GRASP_MODE
+        self.grasp_repeat_positions = GRASP_REPEAT_POSITIONS
+        self.grasp_grip_positions = GRASP_GRIP_POSITIONS
+        self.grasp_release_positions = GRASP_RELEASE_POSITIONS
         
         # 手套监听控制
         self.glove_listener = None
@@ -107,10 +113,15 @@ class MotionController:
             callback=self.on_start_glove_listen,
             pull_up_down=GPIO.PUD_DOWN
         )
+        # 根据抓握模式设置不同的触发边沿
+        # "repeat" 模式：触发一次执行重复抓握
+        # "hold" 模式：检测上升沿（握紧）和下降沿（松开）
+        grasp_edge = GPIO.BOTH if self.grasp_mode == "hold" else GPIO.RISING
         self.gpio.setup_input(
             GPIO_PINS.START_GRASP,
             callback=self.on_start_grasp,
-            pull_up_down=GPIO.PUD_DOWN
+            pull_up_down=GPIO.PUD_DOWN,
+            edge=grasp_edge
         )
         
         # 设置输出引脚
@@ -307,54 +318,100 @@ class MotionController:
         self.start_glove_listening()
     
     def on_start_grasp(self):
-        """开始抓握"""
-        logging.info("✅ 开始抓握")
-        
-        # 检查是否有循环运动在运行，如果有则先停止
-        with self.motion_lock:
-            if self.motion_running:
-                logging.info("⏹️ 检测到循环运动正在运行，先停止循环运动")
-                self.stop_motion_flag.set()
-                time.sleep(0.5)
-            
-            # 清除停止标志，准备开始抓握
-            self.stop_motion_flag.clear()
-            
-            # 设置抓握运动状态
-            self.motion_running = True
-        
-        try:
-            for i in range(3):
-                for i, pos_list in enumerate(self.grasp_positions):
-                    # 检查停止标志
-                    if self.stop_motion_flag.is_set():
-                        logging.info("⏹️ 抓握被停止")
-                        return
-                    
-                    # 执行抓握位置
-                    success = self.controller.move_to_positions(
-                        positions=pos_list,
-                        velocity=DEFAULT_CYCLE_VELOCITY,
-                        max_current=DEFAULT_CYCLE_CURRENT,
-                        wait_time=2
-                    )
-                    
-                    if not success:
-                        logging.warning(f"⚠️ 抓握位置 {i} 运动失败")
-                        continue
-            
-            logging.info("✅ 完成3次抓握")
-                
-            # 移动到0位置
-            print("正在移动到0位置...")
-            self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
-            logging.info("✅ 已回到0位置")
-            
-        finally:
-            # 确保无论如何都能重置运动状态
+        """抓握回调函数
+
+        根据 GRASP_MODE 执行不同逻辑：
+        - "repeat" 模式：IO触发后重复执行 GRASP_REPEAT_POSITIONS 3次
+        - "hold" 模式：IO上升沿执行 GRASP_GRIP_POSITIONS，下降沿执行 GRASP_RELEASE_POSITIONS
+        """
+        if self.grasp_mode == "hold":
+            # 保持触发模式：读取当前GPIO状态判断是上升沿还是下降沿
+            if not self.enable_gpio:
+                logging.warning("⚠️ hold模式需要GPIO支持，当前GPIO已禁用")
+                return
+
+            # 读取当前IO状态
+            is_triggered = self.gpio.read_input(GPIO_PINS.START_GRASP)
+
+            if is_triggered:
+                # 上升沿：执行握紧序列
+                logging.info("✅ 抓握IO触发（上升沿）：执行握紧序列")
+                self._execute_grasp_sequence(self.grasp_grip_positions, "握紧")
+            else:
+                # 下降沿：执行松开序列
+                logging.info("✅ 抓握IO解除（下降沿）：执行松开序列")
+                self._execute_grasp_sequence(self.grasp_release_positions, "松开")
+        else:
+            # 重复抓握模式（默认）
+            logging.info("✅ 开始重复抓握（3次循环）")
+
+            # 检查是否有循环运动在运行，如果有则先停止
             with self.motion_lock:
-                self.motion_running = False
-                # 保持stop_motion_flag的状态不变，以便外部可以知道是否是被停止的
+                if self.motion_running:
+                    logging.info("⏹️ 检测到循环运动正在运行，先停止循环运动")
+                    self.stop_motion_flag.set()
+                    time.sleep(0.5)
+
+                # 清除停止标志，准备开始抓握
+                self.stop_motion_flag.clear()
+
+                # 设置抓握运动状态
+                self.motion_running = True
+
+            try:
+                for cycle in range(3):
+                    for i, pos_list in enumerate(self.grasp_repeat_positions):
+                        # 检查停止标志
+                        if self.stop_motion_flag.is_set():
+                            logging.info("⏹️ 抓握被停止")
+                            return
+
+                        # 执行抓握位置
+                        success = self.controller.move_to_positions(
+                            positions=pos_list,
+                            velocity=DEFAULT_CYCLE_VELOCITY,
+                            max_current=DEFAULT_CYCLE_CURRENT,
+                            wait_time=2
+                        )
+
+                        if not success:
+                            logging.warning(f"⚠️ 抓握位置 {i} 运动失败")
+                            continue
+
+                logging.info("✅ 完成3次抓握")
+
+                # 移动到0位置
+                print("正在移动到0位置...")
+                self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
+                logging.info("✅ 已回到0位置")
+
+            finally:
+                # 确保无论如何都能重置运动状态
+                with self.motion_lock:
+                    self.motion_running = False
+                    # 保持stop_motion_flag的状态不变，以便外部可以知道是否是被停止的
+
+    def _execute_grasp_sequence(self, positions, name):
+        """执行单次抓握序列
+
+        Args:
+            positions: 位置序列
+            name: 序列名称（用于日志）
+        """
+        if not self.controller.is_connected:
+            logging.warning(f"⚠️ 设备未连接，无法执行{name}序列")
+            return
+
+        for i, pos_list in enumerate(positions):
+            success = self.controller.move_to_positions(
+                positions=pos_list,
+                velocity=DEFAULT_CYCLE_VELOCITY,
+                max_current=DEFAULT_CYCLE_CURRENT,
+                wait_time=1
+            )
+            if not success:
+                logging.warning(f"⚠️ {name}位置 {i} 运动失败")
+                continue
 
 
     def start_glove_listening(self):
