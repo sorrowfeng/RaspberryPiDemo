@@ -61,17 +61,20 @@ GRASP_REPEAT_COUNT = 3
 GRASP_GRIP_POSITIONS = [
     [5000, 0, 0, 0, 0, 0],
     [5000, 0, 10000, 10000, 10000, 10000],
+    [5000, 10000, 10000, 10000, 10000, 10000]
 ]
 
 # IO解除触发状态时执行一次松开序列
 GRASP_RELEASE_POSITIONS = [
-    [5000, 10000, 10000, 10000, 10000, 10000],
-    [5000, 0, 10000, 10000, 10000, 10000]
+    [5000, 0, 10000, 10000, 10000, 10000],
+    [5000, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0]
 ]
+
 # 开机自动循环运动
-AUTO_CYCLE_RUNNING = True
+AUTO_CYCLE_RUNNING = False
 # 是否启用循环时的报警检测
-ENABLE_ALARM_CHECK = True
+ENABLE_ALARM_CHECK = False
 # 是否启用回零完成检测
 ENABLE_HOME_CHECK = False
 # 是否启用扭矩到位停止
