@@ -22,6 +22,7 @@ from config import (
     DEFAULT_CYCLE_CURRENT,
     CYCLE_MOVE_POSITIONS,
     CYCLE_FINISH_POSITION,
+    GRASP_POSITIONS,
     ENABLE_ALARM_CHECK,
     AUTO_CYCLE_RUNNING,
     RS485_PORT_NAME,
@@ -69,12 +70,7 @@ class MotionController:
         self.cycle_move_positions = CYCLE_MOVE_POSITIONS
 
         # 定义抓握位置
-        self.grasp_positions = [
-            [5000, 0, 0, 0, 0, 0],
-            [5000, 0, 10000, 10000, 10000, 10000],
-            [5000, 10000, 10000, 10000, 10000, 10000],
-            [5000, 0, 10000, 10000, 10000, 10000],
-        ]
+        self.grasp_positions = GRASP_POSITIONS
         
         # 手套监听控制
         self.glove_listener = None
