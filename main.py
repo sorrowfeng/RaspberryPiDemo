@@ -24,6 +24,7 @@ from config import (
     CYCLE_FINISH_POSITION,
     GRASP_MODE,
     GRASP_REPEAT_POSITIONS,
+    GRASP_REPEAT_COUNT,
     GRASP_GRIP_POSITIONS,
     GRASP_RELEASE_POSITIONS,
     ENABLE_ALARM_CHECK,
@@ -75,6 +76,7 @@ class MotionController:
         # 定义抓握位置序列
         self.grasp_mode = GRASP_MODE
         self.grasp_repeat_positions = GRASP_REPEAT_POSITIONS
+        self.grasp_repeat_count = GRASP_REPEAT_COUNT
         self.grasp_grip_positions = GRASP_GRIP_POSITIONS
         self.grasp_release_positions = GRASP_RELEASE_POSITIONS
         
@@ -359,7 +361,7 @@ class MotionController:
                 self.motion_running = True
 
             try:
-                for cycle in range(3):
+                for cycle in range(self.grasp_repeat_count):
                     for i, pos_list in enumerate(self.grasp_repeat_positions):
                         # 检查停止标志
                         if self.stop_motion_flag.is_set():
@@ -378,7 +380,7 @@ class MotionController:
                             logging.warning(f"⚠️ 抓握位置 {i} 运动失败")
                             continue
 
-                logging.info("✅ 完成3次抓握")
+                logging.info(f"✅ 完成{self.grasp_repeat_count}次抓握")
 
                 # 移动到0位置
                 print("正在移动到0位置...")
