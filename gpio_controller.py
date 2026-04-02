@@ -201,47 +201,52 @@ class GPIOController:
         self.monitor_thread.start()
 
     def _monitor_loop(self):
-        """轮询监控循环，优化防抖机制：二次检测"""
+        """轮询监控循环，优化防抖机制：二次检测，支持双边沿触发"""
         last_states = {}
-        pending_triggers = {}
-        
+        pending_triggers = {}  # pin -> (trigger_time, edge_type)  edge_type: 'rising' or 'falling'
+
         while not self.stop_flag.is_set():
             current_time = time.time()
-            
+
             for pin in self.input_pins.keys():
                 if pin in self.callbacks:
                     current_state = self.read_input(pin)
                     last_state = last_states.get(pin, False)
                     debounce = self.debounce_ms.get(pin, 0)
-                    
+
                     # 检测上升沿
                     if current_state and not last_state:
-                        # 记录触发时间
-                        pending_triggers[pin] = current_time
-                    
+                        # 记录触发时间和边沿类型
+                        pending_triggers[pin] = (current_time, 'rising')
+
                     # 检测下降沿
                     elif not current_state and last_state:
-                        # 如果有未处理的触发，清除它
-                        if pin in pending_triggers:
+                        # 如果有未处理的上升沿触发，清除它（状态已改变）
+                        if pin in pending_triggers and pending_triggers[pin][1] == 'rising':
                             del pending_triggers[pin]
-                    
+                        # 记录下降沿触发
+                        pending_triggers[pin] = (current_time, 'falling')
+
                     # 检查是否有需要二次检测的触发
                     if pin in pending_triggers:
-                        trigger_time = pending_triggers[pin]
+                        trigger_time, edge_type = pending_triggers[pin]
                         if (current_time - trigger_time) * 1000 >= debounce:
                             # 二次检测：再次确认状态
-                            if self.read_input(pin):
+                            confirmed_state = self.read_input(pin)
+                            # 根据边沿类型确认状态
+                            # 上升沿要求状态为True，下降沿要求状态为False
+                            if (edge_type == 'rising' and confirmed_state) or (edge_type == 'falling' and not confirmed_state):
                                 # 状态仍然有效，执行回调
                                 try:
                                     self.callbacks[pin]()
-                                    print(f"GPIO {pin} 触发回调，防抖时间: {debounce}ms")
+                                    print(f"GPIO {pin} {edge_type} 触发回调，防抖时间: {debounce}ms")
                                 except Exception as e:
                                     print(f"GPIO {pin} 回调函数执行错误: {e}")
                             # 移除该触发
                             del pending_triggers[pin]
-                    
+
                     last_states[pin] = current_state
-            
+
             time.sleep(self.monitor_interval)
 
     def _output_timer(self, pin: int, duration: float):

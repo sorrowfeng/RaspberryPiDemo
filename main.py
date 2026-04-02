@@ -28,6 +28,7 @@ from config import (
     GRASP_GRIP_POSITIONS,
     GRASP_RELEASE_POSITIONS,
     ENABLE_ALARM_CHECK,
+    AUTO_CONNECT,
     AUTO_CYCLE_RUNNING,
     RS485_PORT_NAME,
 )
@@ -119,12 +120,15 @@ class MotionController:
         # "repeat" 模式：触发一次执行重复抓握
         # "hold" 模式：检测上升沿（握紧）和下降沿（松开）
         grasp_edge = GPIO.BOTH if self.grasp_mode == "hold" else GPIO.RISING
+        edge_name = "BOTH(双边沿)" if self.grasp_mode == "hold" else "RISING(上升沿)"
+        logging.info(f"[DEBUG] 抓握模式: {self.grasp_mode}, GPIO边沿设置: {edge_name}")
         self.gpio.setup_input(
             GPIO_PINS.START_GRASP,
             callback=self.on_start_grasp,
             pull_up_down=GPIO.PUD_DOWN,
             edge=grasp_edge
         )
+        logging.info("[DEBUG] START_GRASP GPIO 输入设置完成")
         
         # 设置输出引脚
         self.gpio.setup_output(self.cycle_complete_pin, initial=False)
@@ -326,6 +330,7 @@ class MotionController:
         - "repeat" 模式：IO触发后重复执行 GRASP_REPEAT_POSITIONS 3次
         - "hold" 模式：IO上升沿执行 GRASP_GRIP_POSITIONS，下降沿执行 GRASP_RELEASE_POSITIONS
         """
+        logging.info(f"[DEBUG] on_start_grasp 被调用, GRASP_MODE={self.grasp_mode}")
         if self.grasp_mode == "hold":
             # 保持触发模式：读取当前GPIO状态判断是上升沿还是下降沿
             if not self.enable_gpio:
@@ -334,15 +339,17 @@ class MotionController:
 
             # 读取当前IO状态
             is_triggered = self.gpio.read_input(GPIO_PINS.START_GRASP)
+            logging.info(f"[DEBUG] GPIO START_GRASP 状态: is_triggered={is_triggered}")
 
             if is_triggered:
                 # 上升沿：执行握紧序列
-                logging.info("✅ 抓握IO触发（上升沿）：执行握紧序列")
+                logging.info("[DEBUG] 检测到上升沿 -> 执行握紧序列")
                 self._execute_grasp_sequence(self.grasp_grip_positions, "握紧")
             else:
                 # 下降沿：执行松开序列
-                logging.info("✅ 抓握IO解除（下降沿）：执行松开序列")
+                logging.info("[DEBUG] 检测到下降沿 -> 执行松开序列")
                 self._execute_grasp_sequence(self.grasp_release_positions, "松开")
+            logging.info("[DEBUG] on_start_grasp (hold模式) 执行完成")
         else:
             # 重复抓握模式（默认）
             logging.info("✅ 开始重复抓握（3次循环）")
@@ -400,20 +407,24 @@ class MotionController:
             positions: 位置序列
             name: 序列名称（用于日志）
         """
+        logging.info(f"[DEBUG] _execute_grasp_sequence 开始: name={name}, 位置数={len(positions)}")
         if not self.controller.is_connected:
             logging.warning(f"⚠️ 设备未连接，无法执行{name}序列")
             return
 
         for i, pos_list in enumerate(positions):
+            logging.info(f"[DEBUG] {name} - 执行位置 {i}/{len(positions)}: {pos_list}")
             success = self.controller.move_to_positions(
                 positions=pos_list,
                 velocity=DEFAULT_CYCLE_VELOCITY,
                 max_current=DEFAULT_CYCLE_CURRENT,
                 wait_time=1
             )
+            logging.info(f"[DEBUG] {name} - 位置 {i} 执行结果: success={success}")
             if not success:
                 logging.warning(f"⚠️ {name}位置 {i} 运动失败")
                 continue
+        logging.info(f"[DEBUG] _execute_grasp_sequence 完成: name={name}")
 
 
     def start_glove_listening(self):
@@ -517,27 +528,30 @@ class MotionController:
         logging.info(f"  GPIO {GPIO_PINS.STATUS_LED}: 状态LED输出")
         logging.info("\n按 Esc 键退出程序...\n")
         
-        # 自动连接设备并开始循环运动
-        logging.info("🔍 正在尝试自动连接设备...")
-        if self.controller.connect(
-                enable_motors=True,
-                home_motors=True,
-                home_wait_time=DEFAULT_HOME_TIME,
-                device_index=self.device_index,
-                auto_select=self.device_index is None,
-                rs485_port_name=RS485_PORT_NAME):
-            logging.info("✅ 设备自动连接成功")
-            if self.enable_gpio:
-                self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
-                self.gpio.output_high(GPIO_PINS.READY_STATUS)
-                self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
-            
-            # 自动开始循环运动
-            if AUTO_CYCLE_RUNNING:
-                logging.info("🚀 自动开始执行循环运动")
-                self.on_start_motion()
+        # 根据配置决定是否自动连接设备
+        if AUTO_CONNECT:
+            logging.info("🔍 正在尝试自动连接设备...")
+            if self.controller.connect(
+                    enable_motors=True,
+                    home_motors=True,
+                    home_wait_time=DEFAULT_HOME_TIME,
+                    device_index=self.device_index,
+                    auto_select=self.device_index is None,
+                    rs485_port_name=RS485_PORT_NAME):
+                logging.info("✅ 设备自动连接成功")
+                if self.enable_gpio:
+                    self.gpio.output_high(GPIO_PINS.STATUS_LED)  # 状态LED亮起
+                    self.gpio.output_high(GPIO_PINS.READY_STATUS)
+                    self.gpio.output_low(GPIO_PINS.RUNNING_STATUS)
+
+                # 自动开始循环运动
+                if AUTO_CYCLE_RUNNING:
+                    logging.info("🚀 自动开始执行循环运动")
+                    self.on_start_motion()
+            else:
+                logging.error("❌ 设备自动连接失败")
         else:
-            logging.error("❌ 设备自动连接失败")
+            logging.info("⏸️ 自动连接已禁用，等待手动连接")
             
             if self.enable_gpio:
                 self.gpio.output_low(GPIO_PINS.STATUS_LED)
