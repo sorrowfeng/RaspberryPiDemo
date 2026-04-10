@@ -222,9 +222,9 @@ controller.connect(
 | `DEFAULT_HOME_TIME` | 回零等待时间（秒） |
 | `DEFAULT_CYCLE_COUNT` | 循环运动次数 |
 | `DEFAULT_CYCLE_VELOCITY` | 循环运动速度 |
-| `DEFAULT_CYCLE_INTERVAL` | 相邻位置间隔时间（秒） |
+| `DEFAULT_CYCLE_INTERVAL` | 循环动作默认间隔时间（秒），未单独配置时作为回退值 |
 | `DEFAULT_CYCLE_CURRENT` | 最大电流（mA） |
-| `CYCLE_MOVE_POSITIONS` | 循环运动位置序列 |
+| `CYCLE_MOVE_POSITIONS` | 循环运动序列，支持 `{"positions": [...], "interval": 秒数}` |
 | `CYCLE_FINISH_POSITION` | 循环结束位置 |
 | `ENABLE_ALARM_CHECK` | 是否启用报警检测 |
 

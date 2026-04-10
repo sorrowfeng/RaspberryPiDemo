@@ -54,8 +54,8 @@ DEFAULT_CYCLE_CURRENT = 1000
 
 # 循环运动位置序列
 CYCLE_MOVE_POSITIONS = [
-    [10000, 10000, 10000, 10000, 10000, 10000],
-    [0, 0, 0, 0, 0, 0]
+    {"positions": [10000, 10000, 10000, 10000, 10000, 10000], "interval": DEFAULT_CYCLE_INTERVAL},
+    {"positions": [0, 0, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
 ]
 
 # 循环结束后的目标位置

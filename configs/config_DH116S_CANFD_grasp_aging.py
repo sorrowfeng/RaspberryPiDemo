@@ -13,7 +13,7 @@ DEFAULT_COMMUNICATION_MODE = "CANFD"
 
 # 默认启动脚本数量
 # CANFD/RS485 多设备场景通常为 4，ECAT 单设备场景通常为 1
-DEFAULT_LAUNCH_COUNT = 1
+DEFAULT_LAUNCH_COUNT = 4
 
 
 # =============================================================================
@@ -21,8 +21,9 @@ DEFAULT_LAUNCH_COUNT = 1
 # =============================================================================
 
 from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
+
 # 手型类型配置
-# 可选值: LAC_DOF_6 (6自由度) / LAC_DOF_6_S (6自由度小体积版)
+# 可选值: LAC_DOF_6 (6自由度) / LAC_DOF_6_S (6自由度小体型)
 CURRENT_HAND_TYPE = LAC_DOF_6_S
 
 # CANFD 节点 ID 配置 (仅 CANFD 模式有效)
@@ -41,23 +42,24 @@ RS485_PORT_NAME = None
 DEFAULT_HOME_TIME = 5.0
 
 # 默认循环运动次数
-DEFAULT_CYCLE_COUNT = 10000
+DEFAULT_CYCLE_COUNT = 2000
 
 # 默认循环运动速度
 DEFAULT_CYCLE_VELOCITY = 20000
 
-# 默认循环运动间隔（秒）
-DEFAULT_CYCLE_INTERVAL = 0.7
+# 默认循环动作间隔（秒）
+DEFAULT_CYCLE_INTERVAL = 0.8
 
 # 默认循环运动最大电流（mA）
 DEFAULT_CYCLE_CURRENT = 1000
 
 # 循环运动位置序列
 CYCLE_MOVE_POSITIONS = [
-    {"positions": [10000, 10000, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 0, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 0, 10000, 10000, 10000, 10000], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 0, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
+    {"positions": [5000, 0, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
+    {"positions": [5000, 0, 10000, 10000, 10000, 10000], "interval": DEFAULT_CYCLE_INTERVAL},
+    {"positions": [5000, 10000, 10000, 10000, 10000, 10000], "interval": 4.0},
+    {"positions": [5000, 0, 10000, 10000, 10000, 10000], "interval": DEFAULT_CYCLE_INTERVAL},
+    {"positions": [5000, 0, 0, 0, 0, 0], "interval": 1},
 ]
 
 # 循环结束后的目标位置
@@ -79,24 +81,24 @@ GRASP_REPEAT_POSITIONS = [
     [5000, 0, 0, 0, 0, 0],
     [5000, 0, 10000, 10000, 10000, 10000],
     [5000, 10000, 10000, 10000, 10000, 10000],
-    [5000, 0, 10000, 10000, 10000, 10000]
+    [5000, 0, 10000, 10000, 10000, 10000],
 ]
 
 # 重复抓握模式的执行次数
 GRASP_REPEAT_COUNT = 3
 
-# 保持触发模式 - 握紧序列（GRASP_MODE="hold" 且 IO触发时执行）
+# 保持触发模式 - 握紧序列（GRASP_MODE="hold" 且 IO 触发时执行）
 GRASP_GRIP_POSITIONS = [
     [5000, 0, 0, 0, 0, 0],
     [5000, 0, 10000, 10000, 10000, 10000],
-    [5000, 10000, 10000, 10000, 10000, 10000]
+    [5000, 10000, 10000, 10000, 10000, 10000],
 ]
 
-# 保持触发模式 - 松开序列（GRASP_MODE="hold" 且 IO松开时执行）
+# 保持触发模式 - 松开序列（GRASP_MODE="hold" 且 IO 松开时执行）
 GRASP_RELEASE_POSITIONS = [
     [5000, 0, 10000, 10000, 10000, 10000],
     [5000, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0]
+    [0, 0, 0, 0, 0, 0],
 ]
 
 
@@ -108,13 +110,13 @@ GRASP_RELEASE_POSITIONS = [
 AUTO_CONNECT = True
 
 # 开机自动开始循环运动
-AUTO_CYCLE_RUNNING = False
+AUTO_CYCLE_RUNNING = True
 
 # 是否启用循环时的报警检测
-ENABLE_ALARM_CHECK = False
+ENABLE_ALARM_CHECK = True
 
 # 是否启用回零完成检测
-ENABLE_HOME_CHECK = False
+ENABLE_HOME_CHECK = True
 
 # 是否启用扭矩到位停止
 ENABLE_TORQUE_CONTROL = False

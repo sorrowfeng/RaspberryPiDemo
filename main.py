@@ -72,7 +72,7 @@ class MotionController:
         self.stop_motion_flag = threading.Event()
         
         # 定义循环运动位置序列
-        self.cycle_move_positions = CYCLE_MOVE_POSITIONS
+        self.cycle_move_positions = self._normalize_cycle_move_positions(CYCLE_MOVE_POSITIONS)
 
         # 定义抓握位置序列
         self.grasp_mode = GRASP_MODE
@@ -85,6 +85,27 @@ class MotionController:
         self.glove_listener = None
         self.glove_listening = False
         self.glove_lock = threading.Lock()
+
+    @staticmethod
+    def _normalize_cycle_move_positions(cycle_move_positions):
+        normalized_positions = []
+        for index, step in enumerate(cycle_move_positions):
+            if isinstance(step, dict):
+                positions = step.get("positions")
+                interval = step.get("interval", DEFAULT_CYCLE_INTERVAL)
+            else:
+                positions = step
+                interval = DEFAULT_CYCLE_INTERVAL
+
+            if positions is None:
+                raise ValueError(f"CYCLE_MOVE_POSITIONS[{index}] missing positions")
+
+            normalized_positions.append({
+                "positions": positions,
+                "interval": interval,
+            })
+
+        return normalized_positions
 
     def setup_gpio(self):
         """设置GPIO引脚和回调函数"""
@@ -246,7 +267,9 @@ class MotionController:
             cycle_count = 0
             while not self.stop_motion_flag.is_set() and cycle_count < DEFAULT_CYCLE_COUNT:
                 # 遍历循环位置
-                for i, pos_list in enumerate(self.cycle_move_positions):
+                for i, cycle_step in enumerate(self.cycle_move_positions):
+                    positions = cycle_step["positions"]
+                    interval = cycle_step["interval"]
                     # 检查停止标志
                     if self.stop_motion_flag.is_set():
                         logging.info("⏹️ 运动被停止")
@@ -259,10 +282,10 @@ class MotionController:
                     
                     # 执行运动
                     success = self.controller.move_to_positions(
-                        positions=pos_list,
+                        positions=positions,
                         velocity=DEFAULT_CYCLE_VELOCITY,
                         max_current=DEFAULT_CYCLE_CURRENT,
-                        wait_time=DEFAULT_CYCLE_INTERVAL
+                        wait_time=interval
                     )
                     
                     if not success:
