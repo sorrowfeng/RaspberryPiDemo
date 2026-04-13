@@ -3,5 +3,7 @@
 ACTIVE_PRESET = "configs.config_runtime_default"
 
 RUNTIME_OVERRIDES = {
-    "device": {},
+    "device": {
+        "canfd_node_id": 1,
+    },
 }
