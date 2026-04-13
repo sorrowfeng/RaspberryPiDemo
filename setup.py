@@ -160,7 +160,7 @@ def step5_select_config(stdscr):
         show_message(stdscr, "错误", f"目录 {config_dir} 不存在")
         sys.exit(1)
 
-    config_files = [f for f in glob.glob(f"{config_dir}/*") if os.path.isfile(f)]
+    config_files = [f for f in glob.glob(f"{config_dir}/config_*.py") if os.path.isfile(f)]
     if not config_files:
         show_message(stdscr, "错误", f"{config_dir} 目录为空")
         sys.exit(1)
@@ -235,10 +235,25 @@ def step6_copy_config(stdscr, config_file):
 
             import re
 
-            content = re.sub(r"CANFD_NODE_ID\s*=\s*\d+", f"CANFD_NODE_ID = {node_id}", content)
+            # Prefer the new structured config layout.
+            updated_content, update_count = re.subn(
+                r'("canfd_node_id"\s*:\s*)\d+',
+                rf"\g<1>{node_id}",
+                content,
+                count=1,
+            )
+
+            # Fallback for older flat config files.
+            if update_count == 0:
+                updated_content = re.sub(
+                    r"CANFD_NODE_ID\s*=\s*\d+",
+                    f"CANFD_NODE_ID = {node_id}",
+                    content,
+                    count=1,
+                )
 
             with open(target_file, "w", encoding="utf-8") as f:
-                f.write(content)
+                f.write(updated_content)
 
 
 def step7_complete(stdscr):

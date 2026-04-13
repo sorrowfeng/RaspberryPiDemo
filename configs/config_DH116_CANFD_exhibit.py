@@ -3,9 +3,12 @@
 from config_support import axis_defaults, export_legacy_config
 from lhandprolib_wrapper import LAC_DOF_6
 
-
 COMMUNICATION_CONFIG = {"default_mode": "CANFD", "default_launch_count": 4}
-DEVICE_CONFIG = {"current_hand_type": LAC_DOF_6, "canfd_node_id": 1, "rs485_port_name": None}
+DEVICE_CONFIG = {
+    "current_hand_type": LAC_DOF_6,
+    "canfd_node_id": 1,
+    "rs485_port_name": None,
+}
 MOTION_CONFIG = {
     "default_home_time": 5.0,
     "default_cycle_count": 9999999,
@@ -69,4 +72,11 @@ FEATURE_FLAGS = {
     "enable_torque_control": False,
 }
 
-export_legacy_config(globals(), COMMUNICATION_CONFIG, DEVICE_CONFIG, MOTION_CONFIG, GRASP_CONFIG, FEATURE_FLAGS)
+export_legacy_config(
+    globals(),
+    COMMUNICATION_CONFIG,
+    DEVICE_CONFIG,
+    MOTION_CONFIG,
+    GRASP_CONFIG,
+    FEATURE_FLAGS,
+)

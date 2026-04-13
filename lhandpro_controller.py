@@ -224,11 +224,11 @@ class LHandProController:
         if device_index is None:
             if device_count == 1:
                 # 只有一个设备时自动选择
-                print(f"✅ 检测到单个设备，自动选择设备索引: 0")
+                print("检测到单个设备，自动选择设备索引: 0")
                 device_index = 0
             elif auto_select:
                 # 自动选择第一个设备
-                print(f"✅ 自动选择设备索引: 0")
+                print("自动选择设备索引: 0")
                 device_index = 0
             else:
                 # 多个设备时让用户选择
@@ -303,11 +303,11 @@ class LHandProController:
         if channel_index is None:
             if len(names) == 1:
                 # 只有一个网口时自动选择
-                print(f"✅ 检测到单个网口，自动选择: {names[0]}")
+                print(f"检测到单个网口，自动选择: {names[0]}")
                 channel_index = 0
             elif auto_select:
                 # 自动选择第一个网口
-                print(f"✅ 自动选择网口: {names[0]}")
+                print(f"自动选择网口: {names[0]}")
                 channel_index = 0
             else:
                 # 多个网口时让用户选择
@@ -547,7 +547,7 @@ class LHandProController:
                 self.lhp.set_max_current(motor_id, max_current)
 
             self.lhp.move_motors(0)
-            print(f"✅ 运动指令发送成功: positions={positions}")
+            print(f"运动指令发送成功: positions={positions}")
             if wait_time > 0:
                 time.sleep(wait_time)
             return True
@@ -590,7 +590,7 @@ class LHandProController:
                 self.lhp.set_max_current(motor_id, max_current)
 
             self.lhp.move_motors(0)
-            print(f"✅ 运动指令发送成功: angles={angles}")
+            print(f"运动指令发送成功: angles={angles}")
             if wait_time > 0:
                 time.sleep(wait_time)
             return True
@@ -627,7 +627,7 @@ class LHandProController:
                 if not success:
                     print(f"第 {i} 个位置运动失败")
                     return False
-                print(f"line: {i} positions: {pos_list} ✅")
+                print(f"line: {i} positions: {pos_list} OK")
             return True
         except Exception as e:
             print(f"运动序列执行失败: {e}")
@@ -679,7 +679,7 @@ class LHandProController:
 
         try:
             self.lhp.stop_motors(0)
-            print("✅ 所有电机已停止")
+            print("所有电机已停止")
         except Exception as e:
             print(f"停止电机失败: {e}")
 
@@ -722,7 +722,7 @@ class LHandProController:
         
         try:
             self.lhp.set_clear_alarm(0)
-            print("✅ 已清除所有电机报警")
+            print("已清除所有电机报警")
         except Exception as e:
             print(f"清除报警失败: {e}")
     
@@ -741,7 +741,7 @@ class LHandProController:
             for motor_id in range(1, self.dof_active + 1):
                 alarm = self.lhp.get_now_alarm(motor_id)
                 if alarm == 1:
-                    print(f"⚠️ 电机 {motor_id} 报警")
+                    print(f"WARNING: 电机 {motor_id} 报警")
                     return True
             return False
         except Exception as e:

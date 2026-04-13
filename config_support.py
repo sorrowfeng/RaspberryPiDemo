@@ -1,19 +1,19 @@
 """Shared helpers for structured project configuration files."""
 
-from typing import Any, MutableMapping
+from typing import Any, Dict, List, MutableMapping
 
 
-def axis_defaults(value: int, axis_count: int = 6) -> list[int]:
+def axis_defaults(value: int, axis_count: int = 6) -> List[int]:
     return [value] * axis_count
 
 
 def export_legacy_config(
     namespace: MutableMapping[str, Any],
-    communication_config: dict[str, Any],
-    device_config: dict[str, Any],
-    motion_config: dict[str, Any],
-    grasp_config: dict[str, Any],
-    feature_flags: dict[str, Any],
+    communication_config: Dict[str, Any],
+    device_config: Dict[str, Any],
+    motion_config: Dict[str, Any],
+    grasp_config: Dict[str, Any],
+    feature_flags: Dict[str, Any],
 ) -> None:
     """Populate backward-compatible flat exports for existing imports."""
 
