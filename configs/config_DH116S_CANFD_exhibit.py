@@ -1,124 +1,69 @@
-"""
-配置文件 - 集中管理所有可配置参数
-"""
+"""DH116S CANFD exhibit preset."""
+
+from config_support import axis_defaults, export_legacy_config
+from lhandprolib_wrapper import LAC_DOF_6_S
 
 
-# =============================================================================
-# 一、通信配置
-# =============================================================================
+COMMUNICATION_CONFIG = {"default_mode": "CANFD", "default_launch_count": 4}
+DEVICE_CONFIG = {"current_hand_type": LAC_DOF_6_S, "canfd_node_id": 1, "rs485_port_name": None}
+MOTION_CONFIG = {
+    "default_home_time": 5.0,
+    "default_cycle_count": 9999999,
+    "default_cycle_velocity": 20000,
+    "default_cycle_interval": 0.8,
+    "default_cycle_current": 1000,
+    "cycle_move_positions": [
+        {"positions": [0, 8000, 10000, 0, 0, 0], "interval": 0.8},
+        {"positions": [0, 8000, 0, 10000, 0, 0], "interval": 0.8},
+        {"positions": [0, 8000, 0, 0, 10000, 0], "interval": 0.8},
+        {"positions": [0, 8000, 0, 0, 0, 10000], "interval": 0.8},
+        {"positions": [0, 8000, 0, 0, 10000, 0], "interval": 0.8},
+        {"positions": [0, 8000, 0, 10000, 0, 0], "interval": 0.8},
+        {"positions": [0, 8000, 10000, 0, 0, 0], "interval": 0.8},
+        {"positions": [0, 0, 0, 0, 0, 0], "interval": 0.8},
+    ],
+    "cycle_finish_position": [0, 0, 0, 0, 0, 0],
+}
+GRASP_CONFIG = {
+    "mode": "repeat",
+    "repeat_count": 3,
+    "repeat": {
+        "positions": [
+            [5000, 0, 0, 0, 0, 0],
+            [5000, 0, 10000, 10000, 10000, 10000],
+            [5000, 10000, 10000, 10000, 10000, 10000],
+            [5000, 0, 10000, 10000, 10000, 10000],
+        ],
+        "velocities": axis_defaults(20000),
+        "currents": axis_defaults(1000),
+    },
+    "hold": {
+        "grip": {
+            "positions": [
+                [5000, 0, 0, 0, 0, 0],
+                [5000, 0, 10000, 10000, 10000, 10000],
+                [5000, 10000, 10000, 10000, 10000, 10000],
+            ],
+            "velocities": axis_defaults(20000),
+            "currents": axis_defaults(1000),
+        },
+        "release": {
+            "positions": [
+                [5000, 0, 10000, 10000, 10000, 10000],
+                [5000, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0],
+            ],
+            "velocities": axis_defaults(20000),
+            "currents": axis_defaults(1000),
+        },
+    },
+}
+FEATURE_FLAGS = {
+    "auto_connect": True,
+    "auto_cycle_running": True,
+    "enable_alarm_check": True,
+    "enable_home_check": True,
+    "enable_torque_control": False,
+}
 
-# 默认通信模式
-# 可选值: "CANFD" / "ECAT" / "RS485"
-DEFAULT_COMMUNICATION_MODE = "CANFD"
-
-# 默认启动脚本数量
-# CANFD/RS485 多设备场景通常为 4，ECAT 单设备场景通常为 1
-DEFAULT_LAUNCH_COUNT = 4
-
-
-# =============================================================================
-# 二、设备配置
-# =============================================================================
-
-from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
-# 手型类型配置
-# 可选值: LAC_DOF_6 (6自由度) / LAC_DOF_6_S (6自由度小体积版)
-CURRENT_HAND_TYPE = LAC_DOF_6_S
-
-# CANFD 节点 ID 配置 (仅 CANFD 模式有效)
-CANFD_NODE_ID = 1
-
-# RS485 串口配置 (仅 RS485 模式有效)
-# None 表示自动扫描选择，也可指定如 'COM3' 或 '/dev/ttyUSB0'
-RS485_PORT_NAME = None
-
-
-# =============================================================================
-# 三、运动控制配置
-# =============================================================================
-
-# 默认回零时间（秒）
-DEFAULT_HOME_TIME = 5.0
-
-# 默认循环运动次数
-DEFAULT_CYCLE_COUNT = 9999999
-
-# 默认循环运动速度
-DEFAULT_CYCLE_VELOCITY = 20000
-
-# 默认循环运动间隔（秒）
-DEFAULT_CYCLE_INTERVAL = 0.8
-
-# 默认循环运动最大电流（mA）
-DEFAULT_CYCLE_CURRENT = 1000
-
-# 循环运动位置序列
-CYCLE_MOVE_POSITIONS = [
-    {"positions": [0, 8000, 10000, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 0, 10000, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 0, 0, 10000, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 0, 0, 0, 10000], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 0, 0, 10000, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 0, 10000, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 8000, 10000, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-    {"positions": [0, 0, 0, 0, 0, 0], "interval": DEFAULT_CYCLE_INTERVAL},
-]
-
-# 循环结束后的目标位置
-CYCLE_FINISH_POSITION = [0, 0, 0, 0, 0, 0]
-
-
-# =============================================================================
-# 四、抓握配置
-# =============================================================================
-
-# 抓握模式
-# 可选值:
-#   "repeat" - IO触发后重复执行抓握序列（重复次数由 GRASP_REPEAT_COUNT 控制）
-#   "hold"   - IO保持触发时执行握紧序列，IO松开时执行松开序列
-GRASP_MODE = "repeat"
-
-# 重复抓握模式的位置序列（GRASP_MODE="repeat" 时使用）
-GRASP_REPEAT_POSITIONS = [
-    [5000, 0, 0, 0, 0, 0],
-    [5000, 0, 10000, 10000, 10000, 10000],
-    [5000, 10000, 10000, 10000, 10000, 10000],
-    [5000, 0, 10000, 10000, 10000, 10000]
-]
-
-# 重复抓握模式的执行次数
-GRASP_REPEAT_COUNT = 3
-
-# 保持触发模式 - 握紧序列（GRASP_MODE="hold" 且 IO触发时执行）
-GRASP_GRIP_POSITIONS = [
-    [5000, 0, 0, 0, 0, 0],
-    [5000, 0, 10000, 10000, 10000, 10000],
-    [5000, 10000, 10000, 10000, 10000, 10000]
-]
-
-# 保持触发模式 - 松开序列（GRASP_MODE="hold" 且 IO松开时执行）
-GRASP_RELEASE_POSITIONS = [
-    [5000, 0, 10000, 10000, 10000, 10000],
-    [5000, 0, 0, 0, 0, 0],
-    [0, 0, 0, 0, 0, 0]
-]
-
-
-# =============================================================================
-# 五、功能开关
-# =============================================================================
-
-# 开机自动连接设备
-AUTO_CONNECT = True
-
-# 开机自动开始循环运动
-AUTO_CYCLE_RUNNING = True
-
-# 是否启用循环时的报警检测
-ENABLE_ALARM_CHECK = True
-
-# 是否启用回零完成检测
-ENABLE_HOME_CHECK = True
-
-# 是否启用扭矩到位停止
-ENABLE_TORQUE_CONTROL = False
+export_legacy_config(globals(), COMMUNICATION_CONFIG, DEVICE_CONFIG, MOTION_CONFIG, GRASP_CONFIG, FEATURE_FLAGS)

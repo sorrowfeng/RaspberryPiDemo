@@ -5,7 +5,7 @@ LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式
 
 import time
 import threading
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LCN_RS485, LAC_DOF_6, LAC_DOF_6_S
 from canfd_lib import CANFD
 from config import CURRENT_HAND_TYPE, CANFD_NODE_ID, RS485_PORT_NAME, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
@@ -756,3 +756,60 @@ class LHandProController:
         """上下文管理器出口，自动断开连接"""
         self.disconnect()
         return False
+
+
+def _normalize_axis_params(
+    controller: LHandProController,
+    values: Union[int, List[int], Tuple[int, ...]],
+    name: str
+) -> List[int]:
+    """将单值或数组参数统一转换为每个轴对应的参数列表。"""
+    if isinstance(values, int):
+        return [values] * controller.dof_active
+
+    if len(values) != controller.dof_active:
+        raise ValueError(f"{name} count mismatch: expected {controller.dof_active}, got {len(values)}")
+
+    return list(values)
+
+
+def _move_to_positions_with_params(
+    self: LHandProController,
+    positions: List[int],
+    velocities: Union[int, List[int], Tuple[int, ...]],
+    max_currents: Union[int, List[int], Tuple[int, ...]],
+    wait_time: float = 1.0
+) -> bool:
+    """移动到指定位置，并允许为每个轴单独指定速度和电流。"""
+    if not self.is_connected or not self.lhp:
+        print("设备未连接")
+        return False
+
+    if len(positions) != self.dof_active:
+        print(f"位置数量不匹配: 期望 {self.dof_active}, 得到 {len(positions)}")
+        return False
+
+    try:
+        velocity_list = _normalize_axis_params(self, velocities, "velocity")
+        current_list = _normalize_axis_params(self, max_currents, "max_current")
+
+        for j in range(self.dof_active):
+            motor_id = j + 1
+            self.lhp.set_target_position(motor_id, positions[j])
+            self.lhp.set_position_velocity(motor_id, velocity_list[j])
+            self.lhp.set_max_current(motor_id, current_list[j])
+
+        self.lhp.move_motors(0)
+        print(
+            f"运动指令发送成功: positions={positions}, "
+            f"velocities={velocity_list}, max_currents={current_list}"
+        )
+        if wait_time > 0:
+            time.sleep(wait_time)
+        return True
+    except Exception as e:
+        print(f"运动控制失败: {e}")
+        return False
+
+
+LHandProController.move_to_positions_with_params = _move_to_positions_with_params
