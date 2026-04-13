@@ -1,80 +1,18 @@
-"""DH116S CANFD grasp aging preset."""
+DISPLAY_NAME = 'DH116S / CANFD / grasp / aging'
 
-from config_support import axis_defaults, export_legacy_config
-from lhandprolib_wrapper import LAC_DOF_6_S
-
-COMMUNICATION_CONFIG = {
-    "default_mode": "CANFD",
-    "default_launch_count": 4,
-}
-
-DEVICE_CONFIG = {
-    "current_hand_type": LAC_DOF_6_S,
-    "canfd_node_id": 1,
-    "rs485_port_name": None,
-}
-
-MOTION_CONFIG = {
-    "default_home_time": 5.0,
-    "default_cycle_count": 2000,
-    "default_cycle_velocity": 20000,
-    "default_cycle_interval": 0.8,
-    "default_cycle_current": 1000,
-    "cycle_move_positions": [
-        {"positions": [9000, 0, 0, 0, 0, 0], "interval": 0.8},
-        {"positions": [9000, 0, 10000, 10000, 10000, 10000], "interval": 0.8},
-        {"positions": [9000, 10000, 10000, 10000, 10000, 10000], "interval": 4.0},
-        {"positions": [9000, 0, 10000, 10000, 10000, 10000], "interval": 0.8},
-        {"positions": [9000, 0, 0, 0, 0, 0], "interval": 1.0},
-    ],
-    "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],
-}
-
-GRASP_CONFIG = {
-    "mode": "hold",
-    "repeat_count": 3,
-    "repeat": {
-        "positions": [
-            [9000, 0, 0, 0, 0, 0],
-            [9000, 0, 10000, 10000, 10000, 10000],
-            [9000, 10000, 10000, 10000, 10000, 10000],
-            [9000, 0, 10000, 10000, 10000, 10000],
-        ],
-        "velocities": [20000, 20000, 20000, 20000, 20000, 20000],
-        "currents": [1000, 1000, 1000, 1000, 1000, 1000],
-    },
-    "hold": {
-        "grip": {
-            "positions": [
-                [9000, 0, 0, 0, 0, 0],
-                [9000, 10000, 10000, 10000, 10000, 10000],
-            ],
-            "velocities": [20000, 20000, 20000, 20000, 20000, 20000],
-            "currents": [1000, 1000, 1000, 1000, 400, 400],
-        },
-        "release": {
-            "positions": [
-                [9000, 0, 0, 0, 0, 0],
-            ],
-            "velocities": [20000, 20000, 20000, 20000, 20000, 20000],
-            "currents": [1000, 1000, 1000, 1000, 400, 400],
-        },
-    },
-}
-
-FEATURE_FLAGS = {
-    "auto_connect": True,
-    "auto_cycle_running": True,
-    "enable_alarm_check": True,
-    "enable_home_check": True,
-    "enable_torque_control": False,
-}
-
-export_legacy_config(
-    globals(),
-    COMMUNICATION_CONFIG,
-    DEVICE_CONFIG,
-    MOTION_CONFIG,
-    GRASP_CONFIG,
-    FEATURE_FLAGS,
-)
+PRESET = {'communication': {'default_mode': 'CANFD', 'default_launch_count': 4},
+ 'device': {'current_hand_type': 'LAC_DOF_6_S', 'canfd_node_id': 1, 'rs485_port_name': None},
+ 'motion': {'default_home_time': 5.0,
+            'default_cycle_count': 2000,
+            'cycle_finish_position': [2500, 5000, 5000, 0, 0, 0],
+            'cycle_sequence': 'sequences.dh116s_canfd_grasp_aging_cycle'},
+ 'grasp': {'mode': 'hold',
+           'repeat_count': 3,
+           'repeat_sequence': 'sequences.dh116s_canfd_grasp_aging_repeat',
+           'hold_grip_sequence': 'sequences.dh116s_canfd_grasp_aging_hold_grip',
+           'hold_release_sequence': 'sequences.dh116s_canfd_grasp_aging_hold_release'},
+ 'features': {'auto_connect': True,
+              'auto_cycle_running': True,
+              'enable_alarm_check': True,
+              'enable_home_check': True,
+              'enable_torque_control': False}}

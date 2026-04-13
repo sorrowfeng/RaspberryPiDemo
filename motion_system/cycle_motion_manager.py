@@ -2,12 +2,9 @@ import logging
 
 from config import (
     CYCLE_FINISH_POSITION,
-    CYCLE_MOVE_POSITIONS,
     DEFAULT_CYCLE_COUNT,
-    DEFAULT_CYCLE_CURRENT,
-    DEFAULT_CYCLE_INTERVAL,
-    DEFAULT_CYCLE_VELOCITY,
     ENABLE_ALARM_CHECK,
+    MOTION_CONFIG,
 )
 
 
@@ -17,7 +14,7 @@ class CycleMotionManager:
     def __init__(self, session, runtime_state):
         self.session = session
         self.runtime_state = runtime_state
-        self.cycle_steps = self._normalize_cycle_move_positions(CYCLE_MOVE_POSITIONS)
+        self.cycle_steps = self._normalize_cycle_move_positions(MOTION_CONFIG["cycle_move_positions"])
 
     @staticmethod
     def _normalize_cycle_move_positions(cycle_move_positions):
@@ -25,16 +22,22 @@ class CycleMotionManager:
         for index, step in enumerate(cycle_move_positions):
             if isinstance(step, dict):
                 positions = step.get("positions")
-                interval = step.get("interval", DEFAULT_CYCLE_INTERVAL)
+                velocities = step.get("velocities", MOTION_CONFIG["default_cycle_velocity"])
+                currents = step.get("currents", MOTION_CONFIG["default_cycle_current"])
+                interval = step.get("interval", MOTION_CONFIG["default_cycle_interval"])
             else:
                 positions = step
-                interval = DEFAULT_CYCLE_INTERVAL
+                velocities = MOTION_CONFIG["default_cycle_velocity"]
+                currents = MOTION_CONFIG["default_cycle_current"]
+                interval = MOTION_CONFIG["default_cycle_interval"]
 
             if positions is None:
                 raise ValueError(f"CYCLE_MOVE_POSITIONS[{index}] missing positions")
 
             normalized_positions.append({
                 "positions": positions,
+                "velocities": velocities,
+                "currents": currents,
                 "interval": interval,
             })
 
@@ -75,10 +78,10 @@ class CycleMotionManager:
                         logging.warning("检测到报警，循环运动停止")
                         return
 
-                    success = self.session.controller.move_to_positions(
+                    success = self.session.controller.move_to_positions_with_params(
                         positions=cycle_step["positions"],
-                        velocity=DEFAULT_CYCLE_VELOCITY,
-                        max_current=DEFAULT_CYCLE_CURRENT,
+                        velocities=cycle_step["velocities"],
+                        max_currents=cycle_step["currents"],
                         wait_time=cycle_step["interval"],
                     )
                     if not success:
@@ -92,11 +95,11 @@ class CycleMotionManager:
                 logging.info(f"准备下一循环... ({cycle_count}/{DEFAULT_CYCLE_COUNT})")
 
             if cycle_count >= DEFAULT_CYCLE_COUNT:
-                self.session.controller.move_to_positions(
+                self.session.controller.move_to_positions_with_params(
                     positions=CYCLE_FINISH_POSITION,
-                    velocity=DEFAULT_CYCLE_VELOCITY,
-                    max_current=DEFAULT_CYCLE_CURRENT,
-                    wait_time=DEFAULT_CYCLE_INTERVAL,
+                    velocities=MOTION_CONFIG["default_cycle_velocity"],
+                    max_currents=MOTION_CONFIG["default_cycle_current"],
+                    wait_time=MOTION_CONFIG["default_cycle_interval"],
                 )
                 logging.info(f"已完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
         except Exception as exc:
