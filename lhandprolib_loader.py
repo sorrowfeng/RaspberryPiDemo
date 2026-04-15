@@ -269,6 +269,7 @@ class LHandProLibLoader:
         functions = [
             ('lhandprolib_move_motors', [c_void_p, c_int]),
             ('lhandprolib_stop_motors', [c_void_p, c_int]),
+            ('lhandprolib_play_gesture', [c_void_p, c_int, c_int, c_int]),
         ]
 
         for func_name, argtypes in functions:

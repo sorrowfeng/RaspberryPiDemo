@@ -62,12 +62,7 @@ class GraspManager:
                         logging.info("repeat grasp stopped")
                         return
 
-                    success = self.session.controller.move_to_positions_with_params(
-                        positions=step["positions"],
-                        velocities=step["velocities"],
-                        max_currents=step["currents"],
-                        wait_time=step["interval"],
-                    )
+                    success = self._execute_step(step)
                     if not success:
                         logging.warning(f"repeat grasp step {index + 1} failed")
 
@@ -76,6 +71,24 @@ class GraspManager:
         finally:
             self.runtime_state.mark_idle()
 
+    def _execute_step(self, step):
+        if "gesture_id" in step:
+            success = self.session.controller.play_gesture(
+                gesture_id=step["gesture_id"],
+                velocity=step["velocity"],
+                current=step["current"],
+            )
+            if success and step["interval"] > 0:
+                time.sleep(step["interval"])
+            return success
+
+        return self.session.controller.move_to_positions_with_params(
+            positions=step["positions"],
+            velocities=step["velocities"],
+            max_currents=step["currents"],
+            wait_time=step["interval"],
+        )
+
     def _execute_sequence(self, sequence, name):
         if not self.session.controller.is_connected:
             logging.warning(f"device not connected, skip grasp sequence: {name}")
@@ -83,15 +96,15 @@ class GraspManager:
 
         steps = sequence["steps"]
         for index, step in enumerate(steps):
-            logging.info(
-                f"[DEBUG] {name} step {index + 1}/{len(steps)}: positions={step['positions']}"
-            )
-            success = self.session.controller.move_to_positions_with_params(
-                positions=step["positions"],
-                velocities=step["velocities"],
-                max_currents=step["currents"],
-                wait_time=step["interval"],
-            )
+            if "gesture_id" in step:
+                logging.info(
+                    f"[DEBUG] {name} step {index + 1}/{len(steps)}: gesture_id={step['gesture_id']}"
+                )
+            else:
+                logging.info(
+                    f"[DEBUG] {name} step {index + 1}/{len(steps)}: positions={step['positions']}"
+                )
+            success = self._execute_step(step)
             logging.info(f"[DEBUG] {name} step {index + 1} result: success={success}")
             if not success:
                 logging.warning(f"{name} step {index + 1} move failed")

@@ -683,6 +683,30 @@ class LHandProController:
         except Exception as e:
             print(f"停止电机失败: {e}")
 
+    def play_gesture(self, gesture_id: int, velocity: int = 20000, current: int = 1000) -> bool:
+        """
+        执行指定手势
+
+        Args:
+            gesture_id: 执行的手势id
+            velocity: 目标速度, 单位: 当量/秒（默认 20000）
+            current: 最大电流, 单位 ‰(千分比)（默认 1000）
+
+        Returns:
+            bool: 是否执行成功
+        """
+        if not self.is_connected or not self.lhp:
+            print("设备未连接")
+            return False
+
+        try:
+            self.lhp.play_gesture(gesture_id, velocity, current)
+            print(f"手势执行成功: gesture_id={gesture_id}, velocity={velocity}, current={current}")
+            return True
+        except Exception as e:
+            print(f"手势执行失败: {e}")
+            return False
+
     def move_to_zero(
         self,
         velocity: int = 20000,

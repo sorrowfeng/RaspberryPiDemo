@@ -371,6 +371,17 @@ class PyLHandProLib:
         result = self._lib.lhandprolib_stop_motors(self._handle, motor_id)
         self._check_error(result, "停止电机运动")
 
+    def play_gesture(self, gesture_id: int, velocity: int, current: int) -> None:
+        """执行指定手势
+
+        Args:
+            gesture_id: 执行的手势id
+            velocity: 目标速度, 单位: 当量/秒
+            current: 最大电流, 单位 ‰(千分比)
+        """
+        result = self._lib.lhandprolib_play_gesture(self._handle, gesture_id, velocity, current)
+        self._check_error(result, f"执行手势 {gesture_id}")
+
     # 状态获取
     def get_now_status(self, motor_id: int) -> int:
         """获取当前状态"""

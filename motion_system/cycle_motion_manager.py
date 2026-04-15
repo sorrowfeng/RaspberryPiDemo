@@ -21,6 +21,15 @@ class CycleMotionManager:
         normalized_positions = []
         for index, step in enumerate(cycle_move_positions):
             if isinstance(step, dict):
+                if "gesture_id" in step:
+                    normalized_positions.append({
+                        "gesture_id": int(step["gesture_id"]),
+                        "velocity": step.get("velocity", MOTION_CONFIG["default_cycle_velocity"]),
+                        "current": step.get("current", MOTION_CONFIG["default_cycle_current"]),
+                        "interval": step.get("interval", MOTION_CONFIG["default_cycle_interval"]),
+                    })
+                    continue
+
                 positions = step.get("positions")
                 velocities = step.get("velocities", MOTION_CONFIG["default_cycle_velocity"])
                 currents = step.get("currents", MOTION_CONFIG["default_cycle_current"])
@@ -78,12 +87,22 @@ class CycleMotionManager:
                         logging.warning("检测到报警，循环运动停止")
                         return
 
-                    success = self.session.controller.move_to_positions_with_params(
-                        positions=cycle_step["positions"],
-                        velocities=cycle_step["velocities"],
-                        max_currents=cycle_step["currents"],
-                        wait_time=cycle_step["interval"],
-                    )
+                    if "gesture_id" in cycle_step:
+                        success = self.session.controller.play_gesture(
+                            gesture_id=cycle_step["gesture_id"],
+                            velocity=cycle_step["velocity"],
+                            current=cycle_step["current"],
+                        )
+                        if success and cycle_step["interval"] > 0:
+                            import time
+                            time.sleep(cycle_step["interval"])
+                    else:
+                        success = self.session.controller.move_to_positions_with_params(
+                            positions=cycle_step["positions"],
+                            velocities=cycle_step["velocities"],
+                            max_currents=cycle_step["currents"],
+                            wait_time=cycle_step["interval"],
+                        )
                     if not success:
                         logging.warning(f"循环位置 {index} 执行失败")
                         continue

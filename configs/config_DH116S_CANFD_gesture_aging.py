@@ -1,4 +1,4 @@
-DISPLAY_NAME = "DH116S / CANFD / aging"
+DISPLAY_NAME = "DH116S / CANFD / gesture / aging"
 
 PRESET = {
     "communication": {"default_mode": "CANFD", "default_launch_count": 4},
@@ -11,7 +11,7 @@ PRESET = {
         "default_home_time": 5.0,
         "default_cycle_count": 2000,
         "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],
-        "cycle_sequence": "sequences.common_cycle_aging",
+        "cycle_sequence": "sequences.common_cycle_gesture_aging",
     },
     "grasp": {
         "mode": "repeat",

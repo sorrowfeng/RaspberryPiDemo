@@ -65,6 +65,18 @@ def normalize_sequence(sequence: Dict[str, Any], axis_count: int) -> Dict[str, A
 
     normalized_steps = []
     for index, step in enumerate(normalized_sequence.get("steps", [])):
+        if "gesture_id" in step:
+            normalized_step = {
+                "gesture_id": int(step["gesture_id"]),
+                "velocity": int(step.get("velocity", default_velocities[0])),
+                "current": int(step.get("current", default_currents[0])),
+                "interval": float(step.get("interval", default_interval)),
+            }
+            if "name" in step:
+                normalized_step["name"] = step["name"]
+            normalized_steps.append(normalized_step)
+            continue
+
         positions = list(step["positions"])
         if len(positions) != axis_count:
             raise ValueError(
@@ -190,13 +202,13 @@ def export_legacy_config(
             "CYCLE_FINISH_POSITION": motion_config["cycle_finish_position"],
             "GRASP_MODE": grasp_config["mode"],
             "GRASP_REPEAT_COUNT": grasp_config["repeat_count"],
-            "GRASP_REPEAT_POSITIONS": [step["positions"] for step in repeat_sequence["steps"]],
+            "GRASP_REPEAT_POSITIONS": [step.get("positions") for step in repeat_sequence["steps"]],
             "GRASP_REPEAT_VELOCITIES": repeat_sequence["default_velocities"],
             "GRASP_REPEAT_CURRENTS": repeat_sequence["default_currents"],
-            "GRASP_GRIP_POSITIONS": [step["positions"] for step in grip_sequence["steps"]],
+            "GRASP_GRIP_POSITIONS": [step.get("positions") for step in grip_sequence["steps"]],
             "GRASP_GRIP_VELOCITIES": grip_sequence["default_velocities"],
             "GRASP_GRIP_CURRENTS": grip_sequence["default_currents"],
-            "GRASP_RELEASE_POSITIONS": [step["positions"] for step in release_sequence["steps"]],
+            "GRASP_RELEASE_POSITIONS": [step.get("positions") for step in release_sequence["steps"]],
             "GRASP_RELEASE_VELOCITIES": release_sequence["default_velocities"],
             "GRASP_RELEASE_CURRENTS": release_sequence["default_currents"],
             "AUTO_CONNECT": feature_flags["auto_connect"],
