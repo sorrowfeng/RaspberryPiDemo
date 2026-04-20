@@ -9,7 +9,7 @@ PRESET = {
     },
     "motion": {
         "default_home_time": 5.0,
-        "default_cycle_count": 2000,
+        "default_cycle_count": 1000,
         "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],
         "cycle_sequence": "sequences.common_cycle_aging",
     },
