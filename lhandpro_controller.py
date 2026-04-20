@@ -3,12 +3,28 @@ LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式
 提供连接、断开、运动控制等功能
 """
 
-import time
 import threading
-from typing import Optional, List, Tuple, Union
-from lhandprolib_wrapper import PyLHandProLib, LHandProLibError, LCM_POSITION, LCN_ECAT, LCN_CANFD, LCN_RS485, LAC_DOF_6, LAC_DOF_6_S
+import time
+from typing import List, Optional, Tuple, Union
+
 from canfd_lib import CANFD
-from config import CURRENT_HAND_TYPE, CANFD_NODE_ID, RS485_PORT_NAME, ENABLE_HOME_CHECK, ENABLE_TORQUE_CONTROL
+from config import (
+    CANFD_NODE_ID,
+    CURRENT_HAND_TYPE,
+    ENABLE_HOME_CHECK,
+    ENABLE_TORQUE_CONTROL,
+    RS485_PORT_NAME,
+)
+from lhandprolib_wrapper import (
+    LAC_DOF_6,
+    LAC_DOF_6_S,
+    LCM_POSITION,
+    LCN_CANFD,
+    LCN_ECAT,
+    LCN_RS485,
+    LHandProLibError,
+    PyLHandProLib,
+)
 
 
 class LHandProController:
@@ -41,11 +57,13 @@ class LHandProController:
 
         # 验证通信模式
         if self.communication_mode not in ["CANFD", "ECAT", "RS485"]:
-            raise ValueError(f"不支持的通信模式: {self.communication_mode}，请使用 'CANFD'、'ECAT' 或 'RS485'")
+            raise ValueError(
+                f"不支持的通信模式: {self.communication_mode}，请使用 'CANFD'、'ECAT' 或 'RS485'"
+            )
 
         # 根据通信模式动态导入所需库
         self._import_communication_libs()
-    
+
     def _import_communication_libs(self):
         """根据通信模式导入所需的库"""
         global CANFD, EthercatMaster, SerialPort
@@ -70,11 +88,9 @@ class LHandProController:
     def _canfd_receive_callback(self, msg):
         """CANFD 接收回调函数"""
         if self.lhp and self.is_connected:
-            if msg["id"] != 0x480+1:
-                return
             # 处理接收到的CANFD消息
             self.lhp.set_canfd_data_decode(msg["id"], msg["data"])
-    
+
     def _rs485_send_callback(self, data: bytes) -> bool:
         """RS485 发送回调函数"""
         if self.serial_port and self.is_connected:
@@ -158,7 +174,7 @@ class LHandProController:
                     canfd_nom_baudrate=canfd_nom_baudrate,
                     canfd_dat_baudrate=canfd_dat_baudrate,
                     device_index=device_index,
-                    auto_select=auto_select
+                    auto_select=auto_select,
                 )
             elif self.communication_mode == "ECAT":
                 retn = self._connect_ecat(
@@ -166,7 +182,7 @@ class LHandProController:
                     home_motors=home_motors,
                     home_wait_time=home_wait_time,
                     channel_index=device_index,
-                    auto_select=auto_select
+                    auto_select=auto_select,
                 )
             elif self.communication_mode == "RS485":
                 retn = self._connect_rs485(
@@ -184,7 +200,7 @@ class LHandProController:
             if ENABLE_HOME_CHECK:
                 self.lhp.set_move_no_home(0)
             else:
-                self.lhp.set_move_no_home(1)    
+                self.lhp.set_move_no_home(1)
 
             # 设置扭矩控制模式
             if ENABLE_TORQUE_CONTROL:
@@ -193,7 +209,7 @@ class LHandProController:
                 self.lhp.set_torque_control_mode(0, 0)
 
             return retn
-        
+
         except (LHandProLibError, Exception) as e:
             print(f"操作失败: {e}")
             if self.lhp:
@@ -201,25 +217,34 @@ class LHandProController:
                 self.lhp = None
             self._cleanup_communication_resources()
             return False
-    
-    def _connect_canfd(self, enable_motors, home_motors, home_wait_time, canfd_nom_baudrate, canfd_dat_baudrate, device_index, auto_select):
+
+    def _connect_canfd(
+        self,
+        enable_motors,
+        home_motors,
+        home_wait_time,
+        canfd_nom_baudrate,
+        canfd_dat_baudrate,
+        device_index,
+        auto_select,
+    ):
         """使用CANFD模式连接设备"""
         # 初始化CANFD
         self.canfd = CANFD()
-        
+
         print("正在使用CANFD通讯:")
-        
+
         # 扫描CANFD设备
         device_count = self.canfd.scan()
         print(f"找到CANFD设备数量：{device_count}")
-        
+
         if device_count == 0:
             print("未找到CANFD设备")
             self.lhp.close()
             self.lhp = None
             self.canfd = None
             return False
-        
+
         # 处理设备索引
         if device_index is None:
             if device_count == 1:
@@ -257,32 +282,41 @@ class LHandProController:
                 self.canfd = None
                 return False
             print(f"使用指定设备索引: {device_index}")
-        
+
         # 连接CANFD设备
-        print(f"正在连接CANFD设备，标称波特率: {canfd_nom_baudrate}bps，数据波特率: {canfd_dat_baudrate}bps")
-        if not self.canfd.connect(device_index=device_index, channel_index=0, nom_baudrate=canfd_nom_baudrate, dat_baudrate=canfd_dat_baudrate):
+        print(
+            f"正在连接CANFD设备，标称波特率: {canfd_nom_baudrate}bps，数据波特率: {canfd_dat_baudrate}bps"
+        )
+        if not self.canfd.connect(
+            device_index=device_index,
+            channel_index=0,
+            nom_baudrate=canfd_nom_baudrate,
+            dat_baudrate=canfd_dat_baudrate,
+        ):
             print("CANFD设备连接失败")
             self.lhp.close()
             self.lhp = None
             self.canfd = None
             return False
-        
+
         print("CANFD设备连接成功")
         self.is_connected = True
-        
+
         # 设置CANFD接收回调
         self.canfd.set_receive_callback(self._canfd_receive_callback)
-        
+
         # 设置发送回调
-        self.lhp.set_send_canfd_callback(self._canfd_send_callback)      
+        self.lhp.set_send_canfd_callback(self._canfd_send_callback)
 
         # 初始化LHandProLib为CANFD模式
         self.lhp.initial_ex(LCN_CANFD, CANFD_NODE_ID)
-        
+
         # 执行通用初始化步骤
         return self._common_initialization(enable_motors, home_motors, home_wait_time)
-    
-    def _connect_ecat(self, enable_motors, home_motors, home_wait_time, channel_index, auto_select):
+
+    def _connect_ecat(
+        self, enable_motors, home_motors, home_wait_time, channel_index, auto_select
+    ):
         """使用ECAT模式连接设备"""
         # 创建 EtherCAT 主站
         self.ec_master = EthercatMaster()
@@ -364,7 +398,9 @@ class LHandProController:
 
         # 启动监控线程
         self.stop_flag = threading.Event()
-        self.monitor_thread = threading.Thread(target=self._monitor_thread_func, daemon=True)
+        self.monitor_thread = threading.Thread(
+            target=self._monitor_thread_func, daemon=True
+        )
         self.monitor_thread.start()
 
         # 初始化 LHandProLib
@@ -374,13 +410,23 @@ class LHandProController:
             print(f"LHandProLib 初始化失败: {e}")
             self.disconnect()
             return False
-            
+
         # 执行通用初始化步骤
         return self._common_initialization(enable_motors, home_motors, home_wait_time)
-    
-    def _connect_rs485(self, enable_motors, home_motors, home_wait_time, port_name, baud_rate, node_id, device_index=None):
+
+    def _connect_rs485(
+        self,
+        enable_motors,
+        home_motors,
+        home_wait_time,
+        port_name,
+        baud_rate,
+        node_id,
+        device_index=None,
+    ):
         """使用RS485模式连接设备"""
         from serial_port import SerialPort
+
         self.serial_port = SerialPort()
 
         print("正在使用RS485通讯:")
@@ -405,7 +451,9 @@ class LHandProController:
                     port_name = available_ports[device_index]
                     print(f"根据设备索引 {device_index} 自动选择串口: {port_name}")
                 else:
-                    print(f"设备索引 {device_index} 超出可用串口数量 {len(available_ports)}")
+                    print(
+                        f"设备索引 {device_index} 超出可用串口数量 {len(available_ports)}"
+                    )
                     self.lhp.close()
                     self.lhp = None
                     self.serial_port = None
@@ -416,7 +464,9 @@ class LHandProController:
             else:
                 while True:
                     try:
-                        user_input = input(f"\n请选择串口编号 [0-{len(available_ports) - 1}]: ")
+                        user_input = input(
+                            f"\n请选择串口编号 [0-{len(available_ports) - 1}]: "
+                        )
                         port_index = int(user_input)
                         if 0 <= port_index < len(available_ports):
                             port_name = available_ports[port_index]
@@ -475,7 +525,7 @@ class LHandProController:
             time.sleep(home_wait_time)
 
         return True
-    
+
     def _cleanup_communication_resources(self):
         """清理通信资源"""
         if self.communication_mode == "CANFD" and self.canfd:
@@ -493,7 +543,7 @@ class LHandProController:
         elif self.communication_mode == "RS485" and self.serial_port:
             self.serial_port.close()
             self.serial_port = None
-    
+
     def disconnect(self):
         """断开连接并清理资源"""
         if not self.is_connected:
@@ -517,7 +567,7 @@ class LHandProController:
         positions: List[int],
         velocity: int = 20000,
         max_current: int = 1000,
-        wait_time: float = 1.0
+        wait_time: float = 1.0,
     ) -> bool:
         """
         移动到指定位置
@@ -560,7 +610,7 @@ class LHandProController:
         angles: List[float],
         angular_velocity: float = 200.0,
         max_current: int = 1000,
-        wait_time: float = 1.0
+        wait_time: float = 1.0,
     ) -> bool:
         """
         移动到指定角度
@@ -603,7 +653,7 @@ class LHandProController:
         positions_list: List[List[int]],
         velocity: int = 20000,
         max_current: int = 1000,
-        wait_time: float = 1.0
+        wait_time: float = 1.0,
     ) -> bool:
         """
         执行一系列位置运动
@@ -623,7 +673,9 @@ class LHandProController:
 
         try:
             for i, pos_list in enumerate(positions_list):
-                success = self.move_to_positions(pos_list, velocity, max_current, wait_time)
+                success = self.move_to_positions(
+                    pos_list, velocity, max_current, wait_time
+                )
                 if not success:
                     print(f"第 {i} 个位置运动失败")
                     return False
@@ -683,7 +735,9 @@ class LHandProController:
         except Exception as e:
             print(f"停止电机失败: {e}")
 
-    def play_gesture(self, gesture_id: int, velocity: int = 20000, current: int = 1000) -> bool:
+    def play_gesture(
+        self, gesture_id: int, velocity: int = 20000, current: int = 1000
+    ) -> bool:
         """
         执行指定手势
 
@@ -701,17 +755,16 @@ class LHandProController:
 
         try:
             self.lhp.play_gesture(gesture_id, velocity, current)
-            print(f"手势执行成功: gesture_id={gesture_id}, velocity={velocity}, current={current}")
+            print(
+                f"手势执行成功: gesture_id={gesture_id}, velocity={velocity}, current={current}"
+            )
             return True
         except Exception as e:
             print(f"手势执行失败: {e}")
             return False
 
     def move_to_zero(
-        self,
-        velocity: int = 20000,
-        max_current: int = 1000,
-        wait_time: float = 1.0
+        self, velocity: int = 20000, max_current: int = 1000, wait_time: float = 1.0
     ) -> bool:
         """
         移动到零位置（所有位置为0）
@@ -735,7 +788,7 @@ class LHandProController:
             Tuple[int, int]: (总自由度, 主动自由度)
         """
         return self.dof_total, self.dof_active
-    
+
     def clear_alarm(self) -> None:
         """
         清除所有电机报警
@@ -743,24 +796,24 @@ class LHandProController:
         if not self.is_connected or not self.lhp:
             print("设备未连接")
             return
-        
+
         try:
             self.lhp.set_clear_alarm(0)
             print("已清除所有电机报警")
         except Exception as e:
             print(f"清除报警失败: {e}")
-    
+
     def get_alarm(self) -> bool:
         """
         获取所有电机的报警状态
-        
+
         Returns:
             bool: 如果有任何一个电机报警，返回True；否则返回False
         """
         if not self.is_connected or not self.lhp:
             print("设备未连接")
             return False
-        
+
         try:
             for motor_id in range(1, self.dof_active + 1):
                 alarm = self.lhp.get_now_alarm(motor_id)
@@ -785,14 +838,16 @@ class LHandProController:
 def _normalize_axis_params(
     controller: LHandProController,
     values: Union[int, List[int], Tuple[int, ...]],
-    name: str
+    name: str,
 ) -> List[int]:
     """将单值或数组参数统一转换为每个轴对应的参数列表。"""
     if isinstance(values, int):
         return [values] * controller.dof_active
 
     if len(values) != controller.dof_active:
-        raise ValueError(f"{name} count mismatch: expected {controller.dof_active}, got {len(values)}")
+        raise ValueError(
+            f"{name} count mismatch: expected {controller.dof_active}, got {len(values)}"
+        )
 
     return list(values)
 
@@ -802,7 +857,7 @@ def _move_to_positions_with_params(
     positions: List[int],
     velocities: Union[int, List[int], Tuple[int, ...]],
     max_currents: Union[int, List[int], Tuple[int, ...]],
-    wait_time: float = 1.0
+    wait_time: float = 1.0,
 ) -> bool:
     """移动到指定位置，并允许为每个轴单独指定速度和电流。"""
     if not self.is_connected or not self.lhp:
