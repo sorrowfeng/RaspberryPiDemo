@@ -108,6 +108,38 @@ def normalize_sequence(sequence: Dict[str, Any], axis_count: int) -> Dict[str, A
     return normalized_sequence
 
 
+def normalize_cycle_run_plan(motion_config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    default_cycle_count = int(motion_config["default_cycle_count"])
+    run_plan = motion_config.get("cycle_run_plan")
+    if not run_plan:
+        return [{"cycles": default_cycle_count, "velocity_scale": 1.0}]
+
+    normalized_plan = []
+    total_cycles = 0
+    for index, stage in enumerate(run_plan):
+        cycles = int(stage["cycles"])
+        if cycles <= 0:
+            raise ValueError(f"cycle_run_plan[{index}].cycles must be greater than 0")
+
+        velocity_scale = float(stage.get("velocity_scale", 1.0))
+        if velocity_scale <= 0:
+            raise ValueError(f"cycle_run_plan[{index}].velocity_scale must be greater than 0")
+
+        normalized_plan.append({
+            "cycles": cycles,
+            "velocity_scale": velocity_scale,
+        })
+        total_cycles += cycles
+
+    if total_cycles != default_cycle_count:
+        raise ValueError(
+            f"cycle_run_plan total cycles {total_cycles} does not match "
+            f"default_cycle_count {default_cycle_count}"
+        )
+
+    return normalized_plan
+
+
 def build_runtime_configuration(
     preset_module: str,
     runtime_overrides: Optional[Dict[str, Any]] = None,
@@ -147,6 +179,7 @@ def build_runtime_configuration(
         "default_cycle_velocity": cycle_sequence["default_velocities"][0],
         "default_cycle_interval": cycle_sequence["default_interval"],
         "default_cycle_current": cycle_sequence["default_currents"][0],
+        "cycle_run_plan": normalize_cycle_run_plan(preset["motion"]),
         "cycle_move_positions": cycle_sequence["steps"],
         "cycle_finish_position": list(preset["motion"]["cycle_finish_position"]),
     }

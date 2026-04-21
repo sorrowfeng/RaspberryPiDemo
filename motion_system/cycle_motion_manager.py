@@ -15,6 +15,7 @@ class CycleMotionManager:
         self.session = session
         self.runtime_state = runtime_state
         self.cycle_steps = self._normalize_cycle_move_positions(MOTION_CONFIG["cycle_move_positions"])
+        self.cycle_run_plan = MOTION_CONFIG["cycle_run_plan"]
 
     @staticmethod
     def _normalize_cycle_move_positions(cycle_move_positions):
@@ -52,6 +53,20 @@ class CycleMotionManager:
 
         return normalized_positions
 
+    def _get_cycle_velocity_scale(self, cycle_index):
+        elapsed_cycles = 0
+        for stage in self.cycle_run_plan:
+            elapsed_cycles += stage["cycles"]
+            if cycle_index < elapsed_cycles:
+                return stage["velocity_scale"]
+        return self.cycle_run_plan[-1]["velocity_scale"]
+
+    @staticmethod
+    def _scale_velocity(velocities, velocity_scale):
+        if isinstance(velocities, int):
+            return max(1, int(velocities * velocity_scale))
+        return [max(1, int(velocity * velocity_scale)) for velocity in velocities]
+
     def start(self):
         if not self.session.controller.is_connected:
             logging.warning("设备未连接，无法开始循环运动")
@@ -78,6 +93,11 @@ class CycleMotionManager:
         try:
             cycle_count = 0
             while not self.runtime_state.stop_flag.is_set() and cycle_count < DEFAULT_CYCLE_COUNT:
+                velocity_scale = self._get_cycle_velocity_scale(cycle_count)
+                logging.info(
+                    f"cycle {cycle_count + 1}/{DEFAULT_CYCLE_COUNT}, velocity_scale={velocity_scale}"
+                )
+
                 for index, cycle_step in enumerate(self.cycle_steps):
                     if self.runtime_state.stop_flag.is_set():
                         logging.info("循环运动被停止")
@@ -90,7 +110,7 @@ class CycleMotionManager:
                     if "gesture_id" in cycle_step:
                         success = self.session.controller.play_gesture(
                             gesture_id=cycle_step["gesture_id"],
-                            velocity=cycle_step["velocity"],
+                            velocity=self._scale_velocity(cycle_step["velocity"], velocity_scale),
                             current=cycle_step["current"],
                         )
                         if success and cycle_step["interval"] > 0:
@@ -99,7 +119,7 @@ class CycleMotionManager:
                     else:
                         success = self.session.controller.move_to_positions_with_params(
                             positions=cycle_step["positions"],
-                            velocities=cycle_step["velocities"],
+                            velocities=self._scale_velocity(cycle_step["velocities"], velocity_scale),
                             max_currents=cycle_step["currents"],
                             wait_time=cycle_step["interval"],
                         )
