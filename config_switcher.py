@@ -46,6 +46,14 @@ CONFIG_PRESETS = [
         "module": "configs.config_DH116_ECAT_grasp_aging",
         "feedback_positions": [0, 0, 0, 10000, 10000, 0],
     },
+    {
+        "module": "configs.config_DH116_RS485_aging",
+        "feedback_positions": [0, 0, 0, 10000, 10000, 10000],
+    },
+    {
+        "module": "configs.config_DH116_RS485_grasp_aging",
+        "feedback_positions": [0, 8000, 4000, 10000, 10000, 10000],
+    },
 ]
 
 ACTIVE_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "active_config.py")
@@ -158,7 +166,9 @@ class ConfigSwitcher:
 
         if self.write_timer is not None:
             self.write_timer.cancel()
-        self.write_timer = threading.Timer(WRITE_TIMEOUT_SECONDS, self._on_write_timeout)
+        self.write_timer = threading.Timer(
+            WRITE_TIMEOUT_SECONDS, self._on_write_timeout
+        )
         self.write_timer.start()
 
     def _execute_short_press(self):
