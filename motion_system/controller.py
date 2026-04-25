@@ -11,6 +11,7 @@ try:
 except ImportError:
     GPIO = None
 
+from config_switcher import ConfigSwitcher
 from .cycle_motion_manager import CycleMotionManager
 from .device_session import DeviceSession
 from .glove_listener_service import GloveListenerService
@@ -31,6 +32,7 @@ class MotionController:
         self.cycle_manager = CycleMotionManager(self.session, self.runtime_state)
         self.grasp_manager = GraspManager(self.session, self.runtime_state)
         self.glove_service = GloveListenerService(self.session)
+        self.config_switcher = ConfigSwitcher(self)
 
     def setup_gpio(self):
         if not self.session.enable_gpio or not self.session.gpio or GPIO is None:
@@ -44,6 +46,12 @@ class MotionController:
             GPIO_PINS.START_GLOVE_LISTEN,
             callback=self.on_start_glove_listen,
             pull_up_down=GPIO.PUD_DOWN,
+        )
+        self.session.gpio.setup_input(
+            GPIO_PINS.SWITCH_CONFIG,
+            callback=self.config_switcher.on_button_press,
+            pull_up_down=GPIO.PUD_DOWN,
+            edge=GPIO.BOTH,
         )
 
         edge_name = self.grasp_manager.get_gpio_edge_name()
@@ -101,6 +109,7 @@ class MotionController:
         logging.info(f"  GPIO {GPIO_PINS.CONNECT}: 连接设备")
         logging.info(f"  GPIO {GPIO_PINS.DISCONNECT}: 断开设备")
         logging.info(f"  GPIO {GPIO_PINS.START_GLOVE_LISTEN}: 开始手套监听")
+        logging.info(f"  GPIO {GPIO_PINS.SWITCH_CONFIG}: 切换配置预设（短按切换下一个，长按1.5秒返回第一个，60秒无操作自动应用并重启）")
         logging.info(f"  GPIO {self.session.cycle_complete_pin}: 循环完成信号输出")
         logging.info(f"  GPIO {GPIO_PINS.STATUS_LED}: 状态 LED 输出")
         logging.info("\n按 Esc 键退出程序\n")

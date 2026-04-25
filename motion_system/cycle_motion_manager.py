@@ -115,13 +115,13 @@ class CycleMotionManager:
                         )
                         if success and cycle_step["interval"] > 0:
                             import time
-                            time.sleep(cycle_step["interval"])
+                            time.sleep(cycle_step["interval"] / velocity_scale)
                     else:
                         success = self.session.controller.move_to_positions_with_params(
                             positions=cycle_step["positions"],
                             velocities=self._scale_velocity(cycle_step["velocities"], velocity_scale),
                             max_currents=cycle_step["currents"],
-                            wait_time=cycle_step["interval"],
+                            wait_time=cycle_step["interval"] / velocity_scale,
                         )
                     if not success:
                         logging.warning(f"循环位置 {index} 执行失败")

@@ -307,6 +307,7 @@ class GPIO_PINS:
     - GPIO 23 (物理引脚16) - 常规GPIO - CONNECT
     - GPIO 24 (物理引脚18) - 常规GPIO - DISCONNECT
     - GPIO 25 (物理引脚22) - 常规GPIO - START_GLOVE_LISTEN
+    - GPIO 26 (物理引脚37) - 常规GPIO - SWITCH_CONFIG
     
     输出引脚（物理引脚位置）:
     - GPIO 5  (物理引脚29) - 常规GPIO - CYCLE_COMPLETE[0]
@@ -324,7 +325,8 @@ class GPIO_PINS:
     CONNECT = 23          # 连接设备 (物理引脚16)
     DISCONNECT = 24       # 断开连接 (物理引脚18)
     START_GLOVE_LISTEN = 25  # 开始手套监听 (物理引脚22)
-    
+    SWITCH_CONFIG = 26       # 切换配置预设 (物理引脚37)
+
     # 输出引脚定义
     CYCLE_COMPLETE = [5, 6, 13, 19]   # 循环完成信号输出数组，根据设备索引选择对应引脚：
                                       # 索引0: GPIO 5 (物理引脚29), 索引1: GPIO 6 (物理引脚31), 
