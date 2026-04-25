@@ -9,10 +9,15 @@ import time
 import active_config
 from gpio_controller import GPIO_PINS
 
-TIMEOUT_SECONDS = 60
+TIMEOUT_SECONDS = 30
+WRITE_TIMEOUT_SECONDS = 5
 LONG_PRESS_SECONDS = 1.5
 
 CONFIG_PRESETS = [
+    {
+        "module": "configs.config_runtime_default",
+        "feedback_positions": [9000, 3000, 10000, 10000, 10000, 10000],
+    },
     {
         "module": "configs.config_DH116S_CANFD_aging",
         "feedback_positions": [3000, 3000, 0, 10000, 10000, 10000],
@@ -55,15 +60,20 @@ def _find_current_index():
 
 
 def write_active_config(preset_module):
-    file_content = (
-        '"""Selects which preset is active at runtime."""\n\n'
-        f'ACTIVE_PRESET = "{preset_module}"\n\n'
-        "RUNTIME_OVERRIDES = {\n"
-        '    "device": {},\n'
-        "}\n"
+    import re
+
+    with open(ACTIVE_CONFIG_FILE, "r", encoding="utf-8") as file_obj:
+        content = file_obj.read()
+
+    new_content = re.sub(
+        r"^ACTIVE_PRESET\s*=.*$",
+        f'ACTIVE_PRESET = "{preset_module}"',
+        content,
+        flags=re.MULTILINE,
     )
+
     with open(ACTIVE_CONFIG_FILE, "w", encoding="utf-8") as file_obj:
-        file_obj.write(file_content)
+        file_obj.write(new_content)
 
 
 class ConfigSwitcher:
@@ -72,6 +82,7 @@ class ConfigSwitcher:
         self.current_index = _find_current_index()
         self.in_switching_mode = False
         self.timeout_timer = None
+        self.write_timer = None
         self._lock = threading.Lock()
         self.press_start_time = None
         self.long_press_handled = False
@@ -125,38 +136,59 @@ class ConfigSwitcher:
         self._execute_long_press()
 
     def _stop_motion_if_running(self):
-        if self.motion_controller.runtime_state.running:
-            logging.info("GPIO 触发: 切换配置 - 正在停止当前运动...")
-            self.motion_controller.cycle_manager.stop()
-            self.motion_controller.glove_service.stop()
+        if not self.motion_controller.runtime_state.running:
+            return
 
-    def _reset_timeout_and_enter_mode(self):
-        with self._lock:
-            if not self.in_switching_mode:
-                self.in_switching_mode = True
-                logging.info("进入配置切换模式，60秒内无操作将自动应用并重启")
+        logging.info("GPIO 触发: 切换配置 - 正在停止当前运动...")
+        self.motion_controller.runtime_state.stop()
+        self.motion_controller.session.controller.stop_motors()
+        elapsed = 0.0
+        while self.motion_controller.runtime_state.running and elapsed < 5.0:
+            time.sleep(0.1)
+            elapsed += 0.1
 
-            if self.timeout_timer is not None:
-                self.timeout_timer.cancel()
-            self.timeout_timer = threading.Timer(TIMEOUT_SECONDS, self._on_timeout)
-            self.timeout_timer.start()
+        self.motion_controller.glove_service.stop()
+
+    def _start_timers(self):
+        # 调用者必须已持有 self._lock
+        if self.timeout_timer is not None:
+            self.timeout_timer.cancel()
+        self.timeout_timer = threading.Timer(TIMEOUT_SECONDS, self._on_timeout)
+        self.timeout_timer.start()
+
+        if self.write_timer is not None:
+            self.write_timer.cancel()
+        self.write_timer = threading.Timer(WRITE_TIMEOUT_SECONDS, self._on_write_timeout)
+        self.write_timer.start()
 
     def _execute_short_press(self):
         self._stop_motion_if_running()
-        self._reset_timeout_and_enter_mode()
 
         with self._lock:
-            self.current_index = (self.current_index + 1) % len(CONFIG_PRESETS)
+            is_first_press = not self.in_switching_mode
+            if not self.in_switching_mode:
+                self.in_switching_mode = True
+                logging.info("进入配置切换模式，30秒内无操作将自动应用并重启")
+
+            self._start_timers()
+
+            if not is_first_press:
+                self.current_index = (self.current_index + 1) % len(CONFIG_PRESETS)
             preset = CONFIG_PRESETS[self.current_index]
 
-        logging.info(f"切换到预设: {preset['module']}")
+        action = "当前预设" if is_first_press else "切换到预设"
+        logging.info(f"{action}: {preset['module']}")
         self._execute_feedback(preset)
 
     def _execute_long_press(self):
         self._stop_motion_if_running()
-        self._reset_timeout_and_enter_mode()
 
         with self._lock:
+            if not self.in_switching_mode:
+                self.in_switching_mode = True
+                logging.info("进入配置切换模式，30秒内无操作将自动应用并重启")
+
+            self._start_timers()
             self.current_index = 0
             preset = CONFIG_PRESETS[0]
 
@@ -177,28 +209,34 @@ class ConfigSwitcher:
         except Exception as e:
             logging.error(f"反馈动作执行失败: {e}")
 
-    def _on_timeout(self):
+    def _on_write_timeout(self):
         with self._lock:
             preset_module = CONFIG_PRESETS[self.current_index]["module"]
 
-        logging.info(f"配置切换超时，正在应用预设: {preset_module}")
-
+        logging.info(f"5秒超时，正在写入预设: {preset_module}")
         try:
             write_active_config(preset_module)
             logging.info("active_config.py 已更新")
         except Exception as e:
             logging.error(f"写入 active_config.py 失败: {e}")
-            return
+
+    def _on_timeout(self):
+        logging.info("30秒超时，正在清理资源并重启...")
 
         try:
             self.motion_controller._cleanup()
         except Exception as e:
             logging.error(f"清理资源时出错: {e}")
 
-        time.sleep(0.5)
         logging.info("正在执行系统重启...")
-        subprocess.run(
-            "echo 'leadshine' | sudo -S reboot",
+        result = subprocess.run(
+            "echo 'leadshine' | sudo -S shutdown -r now",
             shell=True,
-            check=False,
+            capture_output=True,
+            text=True,
         )
+        logging.info(f"shutdown returncode={result.returncode}")
+        if result.stdout:
+            logging.info(f"shutdown stdout: {result.stdout.strip()}")
+        if result.stderr:
+            logging.error(f"shutdown stderr: {result.stderr.strip()}")

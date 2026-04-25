@@ -15,7 +15,7 @@ PRESET = {
             {"cycles": 500, "velocity_scale": 0.5},
             {"cycles": 500, "velocity_scale": 1.0},
         ],
-        "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],
+        "cycle_finish_position": [7000, 5000, 5000, 0, 0, 0],
         "cycle_sequence": "sequences.common_cycle_aging",
     },
     "grasp": {
