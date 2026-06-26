@@ -81,6 +81,14 @@ class MotionController:
 
         self.session.set_connected_status()
         self.on_start_motion()
+        if command is not None:
+            emit_control_progress(
+                self.session.controller.communication_mode,
+                self.session.device_index,
+                command,
+                "motion_started",
+                "循环运动已开始",
+            )
         return True, "循环运动已启动"
 
     def stop_managed_cycle(self):

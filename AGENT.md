@@ -83,6 +83,12 @@ ACTIVE_PRESET = "configs.config_DH116S_CANFD_power_cycle_test"
 - `main_power_cycle_stop_timeout`
 - `main_power_cycle_control_timeout`
 
+当前主电源通断测试默认时间：
+
+- 上电后等待 `main_power_cycle_start_delay=2.0s`
+- 首个设备开始运动后，运动窗口持续 `main_power_cycle_on_seconds=10.0s`
+- 断电后等待 `main_power_cycle_off_seconds=1.0s`
+
 如果开机自启且现场可能有多个串口，建议把 `main_power_cycle_port` 固定成实际端口，例如：
 
 ```python
@@ -132,9 +138,11 @@ launch.py
       -> while True:
            发送上电
            等待 main_power_cycle_start_delay
-           发送 start_cycle 控制命令，main.py 内部连接、回零并开始循环运动
+           按 device index 顺序发送 start_cycle 控制命令，不同 main.py 间隔 1s
+           main.py 内部连接、回零并开始循环运动
            任意一个 main.py 发出 home_started 进度后，GPIO12 输出一次计数脉冲
-           上电总时长达到 main_power_cycle_on_seconds
+           未接设备的 start_cycle 失败只记录，不中断本轮
+           任意一个 main.py 发出 motion_started 进度后，运动窗口持续 main_power_cycle_on_seconds
            发送 stop_cycle 控制命令，main.py 内部停止运动并断开设备
            stop_cycle 成功后发送断电
            等待 main_power_cycle_off_seconds

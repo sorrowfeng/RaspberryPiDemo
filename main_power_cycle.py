@@ -39,6 +39,7 @@ POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
 SEND_DRAIN_SECONDS = 0.1
 MAIN_START_COUNT_PULSE_SECONDS = 0.5
+MANAGED_START_COMMAND_SPACING_SECONDS = 1.0
 logger = logging.getLogger(__name__)
 
 
@@ -82,7 +83,7 @@ def parse_args():
         "--on-seconds",
         type=float,
         default=MAIN_POWER_CYCLE_ON_SECONDS,
-        help="Power-on duration for each cycle.",
+        help="Motion window seconds after the first managed main.py starts motion.",
     )
     parser.add_argument(
         "--off-seconds",
@@ -251,14 +252,21 @@ def start_managed_main_processes(args):
     return processes
 
 
-def request_managed_motion_start(args, cycle_label: str, on_home_started=None) -> bool:
-    logger.info("%s: 请求长驻 main.py 执行连接、回零并开始循环运动", cycle_label)
+def request_managed_motion_start(args, cycle_label: str, on_progress=None) -> bool:
+    logger.info(
+        "%s: 请求长驻 main.py 按设备顺序执行连接、回零并开始循环运动；"
+        "不同 main.py 间隔 %.3fs，未接设备失败将忽略，至少需要 1 个设备开始运动",
+        cycle_label,
+        MANAGED_START_COMMAND_SPACING_SECONDS,
+    )
     return request_existing_main_action(
         "start_cycle",
         args.communication_mode,
         timeout=args.control_timeout,
-        progress_stage="home_started",
-        on_progress=on_home_started,
+        progress_stage=("home_started", "motion_started"),
+        on_progress=on_progress,
+        min_successes=1,
+        command_spacing_seconds=MANAGED_START_COMMAND_SPACING_SECONDS,
     )
 
 
@@ -305,7 +313,7 @@ def stop_motion_then_power_off(
 def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStartCounter) -> int:
     logger.info(
         "开始电源通断托管循环: "
-        "preset=%s, mode=%s, count=%s, start_delay=%ss, 上电=%ss, 断电=%ss, "
+        "preset=%s, mode=%s, count=%s, start_delay=%ss, 运动窗口=%ss, 断电等待=%ss, "
         "control_timeout=%ss, stop_timeout=%ss",
         ACTIVE_PRESET,
         args.communication_mode,
@@ -322,25 +330,32 @@ def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStart
         cycle_index = 1
         while True:
             logger.info("power cycle %s: 上电", cycle_index)
-            power_on_at = time.monotonic()
             send_command(serial_port, POWER_ON_COMMAND, "上电")
             sleep_with_interrupt(args.start_delay)
 
+            motion_window_started_at = None
             home_started_counted = False
 
-            def mark_home_started(_data, _progress):
-                nonlocal home_started_counted
-                if home_started_counted:
-                    return
-                home_started_counted = True
-                start_counter.mark_started(cycle_index)
+            def handle_start_progress(_data, progress):
+                nonlocal home_started_counted, motion_window_started_at
+                stage = progress.get("stage")
+                if stage == "home_started" and not home_started_counted:
+                    home_started_counted = True
+                    start_counter.mark_started(cycle_index)
+                elif stage == "motion_started" and motion_window_started_at is None:
+                    motion_window_started_at = time.monotonic()
+                    logger.info(
+                        "power cycle %s: 首个设备已开始运动，开始 %.3fs 运动窗口计时",
+                        cycle_index,
+                        args.on_seconds,
+                    )
 
             if not request_managed_motion_start(
                 args,
                 f"power cycle {cycle_index}",
-                on_home_started=mark_home_started,
+                on_progress=handle_start_progress,
             ):
-                logger.error("power cycle %s: 托管启动运动失败，准备停止进程并断电后退出", cycle_index)
+                logger.error("power cycle %s: 没有设备成功开始运动，准备停止进程并断电后退出", cycle_index)
                 stop_motion_then_power_off(
                     serial_port,
                     processes,
@@ -350,13 +365,20 @@ def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStart
                 )
                 return 1
 
-            remaining_on_seconds = args.on_seconds - (time.monotonic() - power_on_at)
+            if motion_window_started_at is None:
+                motion_window_started_at = time.monotonic()
+                logger.warning(
+                    "power cycle %s: 未收到 motion_started 进度，使用 start_cycle 完成时间作为运动窗口起点",
+                    cycle_index,
+                )
+
+            remaining_on_seconds = args.on_seconds - (time.monotonic() - motion_window_started_at)
             if remaining_on_seconds > 0:
                 logger.debug("power cycle %s: 剩余上电等待 %.3fs", cycle_index, remaining_on_seconds)
                 sleep_with_interrupt(remaining_on_seconds)
             else:
                 logger.warning(
-                    "power cycle %s: main.py 启动耗时已超过上电窗口 %.3fs",
+                    "power cycle %s: start_cycle 完成时运动窗口 %.3fs 已结束",
                     cycle_index,
                     args.on_seconds,
                 )

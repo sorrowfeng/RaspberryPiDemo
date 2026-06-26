@@ -19,6 +19,19 @@ def device_label(device_index):
     return "auto" if device_index is None else str(device_index)
 
 
+def target_sort_key(data):
+    device_index = data.get("device_index")
+    try:
+        device_order = int(device_index)
+    except (TypeError, ValueError):
+        device_order = 9999
+    return (
+        device_order,
+        str(data.get("device_label") or ""),
+        int(data.get("pid") or 0),
+    )
+
+
 def runtime_pid_path(communication_mode, device_index):
     return os.path.join(
         RUNTIME_DIR,
@@ -417,6 +430,8 @@ def request_existing_main_action(
     payload=None,
     progress_stage=None,
     on_progress=None,
+    min_successes=None,
+    command_spacing_seconds: float = 0.0,
 ) -> bool:
     targets = []
     for data in iter_runtime_pid_files(communication_mode, device_index):
@@ -424,6 +439,7 @@ def request_existing_main_action(
             remove_stale_pid_file(data["path"])
             continue
         targets.append(data)
+    targets.sort(key=target_sort_key)
 
     if not targets:
         logging.error(
@@ -435,7 +451,87 @@ def request_existing_main_action(
         return False
 
     command_ids = {}
-    for data in targets:
+    pending = {}
+    failed = {}
+    if isinstance(progress_stage, str):
+        progress_stages = {progress_stage}
+    else:
+        progress_stages = set(progress_stage or [])
+    progressed = set()
+    succeeded = set()
+
+    def poll_pending_once():
+        for pid, data in list(pending.items()):
+            if not is_runtime_main_process_running(data):
+                failed[pid] = "进程已退出"
+                pending.pop(pid, None)
+                continue
+
+            if progress_stages:
+                progress = read_json_file(
+                    runtime_progress_path(data.get("communication_mode"), data.get("device_index")),
+                    warn=False,
+                )
+                if (
+                    progress
+                    and progress.get("id") == command_ids[pid]
+                    and progress.get("stage") in progress_stages
+                    and (pid, progress.get("stage")) not in progressed
+                ):
+                    progressed.add((pid, progress.get("stage")))
+                    logging.info(
+                        "main.py 控制命令进度: action=%s, stage=%s, pid=%s, message=%s",
+                        action,
+                        progress.get("stage"),
+                        pid,
+                        progress.get("message"),
+                    )
+                    if on_progress:
+                        try:
+                            on_progress(data, progress)
+                        except Exception as exc:
+                            logging.warning(
+                                "main.py 控制进度回调失败: action=%s, stage=%s, pid=%s, error=%s",
+                                action,
+                                progress.get("stage"),
+                                pid,
+                                exc,
+                            )
+
+            response = read_json_file(
+                runtime_response_path(data.get("communication_mode"), data.get("device_index")),
+                warn=False,
+            )
+            if not response or response.get("id") != command_ids[pid]:
+                continue
+
+            if response.get("ok"):
+                succeeded.add(pid)
+                logging.info(
+                    "main.py 控制命令完成: action=%s, pid=%s, message=%s",
+                    action,
+                    pid,
+                    response.get("message"),
+                )
+            else:
+                failed[pid] = response.get("message") or "命令执行失败"
+                logging.error(
+                    "main.py 控制命令失败: action=%s, pid=%s, message=%s",
+                    action,
+                    pid,
+                    failed[pid],
+                )
+            pending.pop(pid, None)
+
+    def poll_pending_until(deadline):
+        while time.monotonic() < deadline:
+            if pending:
+                poll_pending_once()
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(0.1, remaining))
+
+    for index, data in enumerate(targets):
         command_id = f"{os.getpid()}-{time.time_ns()}-{uuid.uuid4().hex}"
         command_ids[data["pid"]] = command_id
         response_path = runtime_response_path(data.get("communication_mode"), data.get("device_index"))
@@ -463,6 +559,7 @@ def request_existing_main_action(
         }
         command_path = runtime_command_path(data.get("communication_mode"), data.get("device_index"))
         atomic_write_json(command_path, command)
+        pending[data["pid"]] = data
         logging.info(
             "已发送 main.py 控制命令: action=%s, pid=%s, mode=%s, device=%s",
             action,
@@ -471,71 +568,19 @@ def request_existing_main_action(
             data.get("device_label"),
         )
 
-    deadline = time.monotonic() + timeout
-    pending = {data["pid"]: data for data in targets}
-    failed = {}
-    progressed = set()
-    while time.monotonic() < deadline and pending:
-        for pid, data in list(pending.items()):
-            if not is_runtime_main_process_running(data):
-                failed[pid] = "进程已退出"
-                pending.pop(pid, None)
-                continue
-
-            if progress_stage and pid not in progressed:
-                progress = read_json_file(
-                    runtime_progress_path(data.get("communication_mode"), data.get("device_index")),
-                    warn=False,
-                )
-                if (
-                    progress
-                    and progress.get("id") == command_ids[pid]
-                    and progress.get("stage") == progress_stage
-                ):
-                    progressed.add(pid)
-                    logging.info(
-                        "main.py 控制命令进度: action=%s, stage=%s, pid=%s, message=%s",
-                        action,
-                        progress_stage,
-                        pid,
-                        progress.get("message"),
-                    )
-                    if on_progress:
-                        try:
-                            on_progress(data, progress)
-                        except Exception as exc:
-                            logging.warning(
-                                "main.py 控制进度回调失败: action=%s, stage=%s, pid=%s, error=%s",
-                                action,
-                                progress_stage,
-                                pid,
-                                exc,
-                            )
-
-            response = read_json_file(
-                runtime_response_path(data.get("communication_mode"), data.get("device_index")),
-                warn=False,
+        if command_spacing_seconds > 0 and index < len(targets) - 1:
+            spacing_deadline = time.monotonic() + command_spacing_seconds
+            logging.debug(
+                "等待下一个 main.py 控制命令间隔: action=%s, current_device=%s, spacing=%ss",
+                action,
+                data.get("device_label"),
+                command_spacing_seconds,
             )
-            if not response or response.get("id") != command_ids[pid]:
-                continue
+            poll_pending_until(spacing_deadline)
 
-            if response.get("ok"):
-                logging.info(
-                    "main.py 控制命令完成: action=%s, pid=%s, message=%s",
-                    action,
-                    pid,
-                    response.get("message"),
-                )
-            else:
-                failed[pid] = response.get("message") or "命令执行失败"
-                logging.error(
-                    "main.py 控制命令失败: action=%s, pid=%s, message=%s",
-                    action,
-                    pid,
-                    failed[pid],
-                )
-            pending.pop(pid, None)
-
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline and pending:
+        poll_pending_once()
         if pending:
             time.sleep(0.1)
 
@@ -548,5 +593,26 @@ def request_existing_main_action(
             data.get("communication_mode"),
             data.get("device_label"),
         )
+
+    if min_successes is not None:
+        if len(succeeded) >= min_successes:
+            if failed:
+                logging.warning(
+                    "main.py 控制命令部分成功: action=%s, succeeded=%s, required=%s, failed=%s",
+                    action,
+                    len(succeeded),
+                    min_successes,
+                    len(failed),
+                )
+            return True
+
+        logging.error(
+            "main.py 控制命令成功数量不足: action=%s, succeeded=%s, required=%s, failed=%s",
+            action,
+            len(succeeded),
+            min_successes,
+            len(failed),
+        )
+        return False
 
     return not failed
