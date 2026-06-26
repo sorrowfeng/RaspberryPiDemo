@@ -32,7 +32,11 @@
   - 主电源通断测试入口。
   - 先执行 USB-to-RS485 模式配置脚本；该脚本会尝试加载 Exar `xr_usb_serial_common` 驱动并等待 `/dev/ttyXRUSB*` 出现。
   - 打开主电源控制串口。
-  - 循环执行上电、启动 `main.py` 子进程、断电、停止 `main.py` 子进程。
+  - 启动长驻 `main.py` 子进程后不按轮次退出；每轮通过控制命令让子进程连接、回零、开始运动、停止运动并断开设备。
+
+- `main_runtime_control.py`
+  - `main.py` 长驻进程控制接口。
+  - 通过 `runtime/` 下的 PID、命令、响应 JSON 文件实现外部命令调用。
 
 - `main_lifecycle.py`
   - `main.py` 生命周期共享模块。
@@ -77,6 +81,7 @@ ACTIVE_PRESET = "configs.config_DH116S_CANFD_power_cycle_test"
 - `main_power_cycle_baud_rate`
 - `main_power_cycle_port`
 - `main_power_cycle_stop_timeout`
+- `main_power_cycle_control_timeout`
 
 如果开机自启且现场可能有多个串口，建议把 `main_power_cycle_port` 固定成实际端口，例如：
 
@@ -103,6 +108,16 @@ main.py --communication-mode=<mode> --device-index=1
 ...
 ```
 
+运行中的 `main.py` 会在 `runtime/` 下写入 PID 文件。可以用命令行请求已运行的 `main.py` 停止运动并断开连接：
+
+```text
+sudo python3 main.py --stop-existing -m CANFD
+sudo python3 main.py --stop-existing -m CANFD -i 0
+sudo python3 main.py --stop-existing
+```
+
+`--disconnect-existing`、`--shutdown-existing`、`--disconnect` 是同一个停止命令的别名。该命令通过 `SIGTERM` 通知已运行的 `main.py` 优雅退出；具体释放 CANFD、ECAT 或 RS485 资源由正在运行的 `main.py` 按当前通讯模式执行。
+
 ## 主电源通断测试流程
 
 当 `ENABLE_MAIN_POWER_CYCLE_SCRIPT=True` 时：
@@ -112,13 +127,16 @@ launch.py
   -> main_power_cycle.py
       -> tools/setup_rs485_mode.py
       -> 打开主电源控制串口
+      -> 清理同通信模式下已存在的 main.py
+      -> 启动 N 个长驻 main.py --managed-by-power-cycle
       -> while True:
            发送上电
            等待 main_power_cycle_start_delay
-           启动 N 个 main.py
+           发送 start_cycle 控制命令，main.py 内部连接、回零并开始循环运动
+           任意一个 main.py 发出 home_started 进度后，GPIO12 输出一次计数脉冲
            上电总时长达到 main_power_cycle_on_seconds
-           发送断电
-           停止本轮 main.py
+           发送 stop_cycle 控制命令，main.py 内部停止运动并断开设备
+           stop_cycle 成功后发送断电
            等待 main_power_cycle_off_seconds
 ```
 
@@ -139,6 +157,14 @@ launch.py
 ```text
 9600
 ```
+
+主电源通断测试回零启动计数：
+
+```text
+GPIO12
+```
+
+每次上电后，任意一个长驻 `main.py` 在 `start_cycle` 流程中成功发出回零指令，会输出一次 0.5s 计数脉冲，并在日志中记录累计次数。多脚本场景同一轮只记一次。
 
 ## 日志
 
@@ -205,6 +231,7 @@ ubuntu@192.168.137.137
 - `.git`
 - `__pycache__`
 - `logs`
+- `runtime`
 
 部署后建议验证：
 
@@ -225,7 +252,7 @@ find . \
 
 是否进入普通启动还是主电源通断测试，由当前配置决定。
 
-注意：如果希望 `sudo systemctl stop <service>` 时优雅停止所有脚本，需要确保 service 使用合适的 `KillMode` 和 `TimeoutStopSec`。当前代码已经集中管理 `main.py` 子进程生命周期，但如果 systemd 直接发送 `SIGTERM`，仍应确认退出路径是否满足现场断电清理要求。
+注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。确认 `stop_cycle` 完成后，才会发送断电指令。systemd 服务仍建议配置足够的 `TimeoutStopSec`，避免清理尚未完成就被系统强杀。
 
 ## 绿联 USB-to-RS485 适配器识别问题
 

@@ -12,14 +12,25 @@ from config import (
     DEFAULT_COMMUNICATION_MODE,
     DEFAULT_LAUNCH_COUNT,
     MAIN_POWER_CYCLE_BAUD_RATE,
+    MAIN_POWER_CYCLE_CONTROL_TIMEOUT,
     MAIN_POWER_CYCLE_OFF_SECONDS,
     MAIN_POWER_CYCLE_ON_SECONDS,
     MAIN_POWER_CYCLE_PORT,
     MAIN_POWER_CYCLE_START_DELAY,
     MAIN_POWER_CYCLE_STOP_TIMEOUT,
 )
+from gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
 from log import setup_logging
-from main_lifecycle import setup_rs485_mode, start_main_processes, stop_main_processes
+from main_lifecycle import (
+    setup_rs485_mode,
+    start_main_processes,
+    stop_main_processes,
+)
+from main_runtime_control import (
+    request_existing_main_action,
+    stop_existing_main_processes,
+    wait_for_main_processes,
+)
 from serial_port import SerialPort
 
 
@@ -27,6 +38,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
 SEND_DRAIN_SECONDS = 0.1
+MAIN_START_COUNT_PULSE_SECONDS = 0.5
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +57,7 @@ def parse_args():
         "-n",
         type=int,
         default=DEFAULT_LAUNCH_COUNT,
-        help="Number of managed main.py processes to launch per power-on cycle.",
+        help="Number of long-running managed main.py processes to launch.",
     )
     parser.add_argument(
         "--port",
@@ -64,7 +76,7 @@ def parse_args():
         "--start-delay",
         type=float,
         default=MAIN_POWER_CYCLE_START_DELAY,
-        help="Delay after power-on before starting managed main.py processes.",
+        help="Delay after power-on before requesting managed main.py motion start.",
     )
     parser.add_argument(
         "--on-seconds",
@@ -83,6 +95,15 @@ def parse_args():
         type=float,
         default=MAIN_POWER_CYCLE_STOP_TIMEOUT,
         help="Seconds to wait for managed main.py processes to stop before killing them.",
+    )
+    parser.add_argument(
+        "--control-timeout",
+        type=float,
+        default=MAIN_POWER_CYCLE_CONTROL_TIMEOUT,
+        help=(
+            "Seconds to wait for long-running main.py control commands "
+            "such as connect/home/start and stop/disconnect."
+        ),
     )
     return parser.parse_args()
 
@@ -132,6 +153,66 @@ def sleep_with_interrupt(seconds: float) -> None:
         time.sleep(min(remaining, 0.5))
 
 
+class MainStartCounter:
+    """Outputs one GPIO pulse when a power-cycle round starts homing."""
+
+    def __init__(
+        self,
+        pin: int = GPIO_PINS.POWER_CYCLE_MAIN_START_COUNT,
+        pulse_seconds: float = MAIN_START_COUNT_PULSE_SECONDS,
+    ):
+        self.pin = pin
+        self.pulse_seconds = pulse_seconds
+        self.total_count = 0
+        self.gpio = None
+
+    def setup(self) -> None:
+        if not GPIO_AVAILABLE:
+            logger.warning("RPi.GPIO 未安装，GPIO%s 回零启动计数脉冲已禁用", self.pin)
+            return
+
+        try:
+            self.gpio = GPIOController()
+            self.gpio.setup_output(self.pin, initial=False)
+            logger.info(
+                "主电源通断回零启动计数 GPIO 已启用: GPIO%s, pulse=%ss",
+                self.pin,
+                self.pulse_seconds,
+            )
+        except Exception as exc:
+            self.gpio = None
+            logger.warning("GPIO%s 回零启动计数初始化失败，计数脉冲已禁用: %s", self.pin, exc)
+
+    def mark_started(self, cycle_index: int) -> None:
+        self.total_count += 1
+        if self.gpio is None:
+            logger.info(
+                "power cycle %s: 回零启动计数 +1, total=%s, GPIO%s 脉冲未启用",
+                cycle_index,
+                self.total_count,
+                self.pin,
+            )
+            return
+
+        logger.info(
+            "power cycle %s: 回零启动计数 +1, total=%s, 输出 GPIO%s 脉冲",
+            cycle_index,
+            self.total_count,
+            self.pin,
+        )
+        self.gpio.output_pulse(self.pin, duration=self.pulse_seconds)
+
+    def cleanup(self) -> None:
+        if self.gpio is None:
+            return
+
+        try:
+            self.gpio.cleanup()
+            logger.info("GPIO%s 回零启动计数资源已清理", self.pin)
+        except Exception as exc:
+            logger.exception("GPIO%s 回零启动计数资源清理失败: %s", self.pin, exc)
+
+
 def open_power_serial(args):
     serial_port = SerialPort()
     port_name = args.port or select_port(serial_port)
@@ -143,20 +224,99 @@ def open_power_serial(args):
     return serial_port
 
 
-def run_power_cycle_loop(serial_port: SerialPort, args) -> int:
+def start_managed_main_processes(args):
+    logger.info("清理同通信模式下已存在的 main.py 进程: mode=%s", args.communication_mode)
+    stop_result = stop_existing_main_processes(
+        communication_mode=args.communication_mode,
+        timeout=args.stop_timeout,
+    )
+    if stop_result != 0:
+        raise RuntimeError("同通信模式下已有 main.py 进程未能退出")
+
+    logger.info("启动长驻 main.py 进程: mode=%s, count=%s", args.communication_mode, args.launch_count)
+    processes = start_main_processes(
+        args.communication_mode,
+        args.launch_count,
+        new_process_group=True,
+        stop_timeout=args.stop_timeout,
+        managed_control=True,
+    )
+    if not wait_for_main_processes(
+        args.communication_mode,
+        args.launch_count,
+        timeout=args.control_timeout,
+    ):
+        stop_main_processes(processes, args.stop_timeout)
+        raise RuntimeError("长驻 main.py 进程未全部就绪")
+    return processes
+
+
+def request_managed_motion_start(args, cycle_label: str, on_home_started=None) -> bool:
+    logger.info("%s: 请求长驻 main.py 执行连接、回零并开始循环运动", cycle_label)
+    return request_existing_main_action(
+        "start_cycle",
+        args.communication_mode,
+        timeout=args.control_timeout,
+        progress_stage="home_started",
+        on_progress=on_home_started,
+    )
+
+
+def request_managed_motion_stop(args, cycle_label: str) -> bool:
+    logger.info("%s: 请求长驻 main.py 停止运动并断开连接", cycle_label)
+    return request_existing_main_action(
+        "stop_cycle",
+        args.communication_mode,
+        timeout=args.control_timeout,
+    )
+
+
+def stop_motion_then_power_off(
+    serial_port: SerialPort,
+    processes,
+    args,
+    cycle_label: str,
+    *,
+    terminate_processes: bool = False,
+) -> bool:
+    command_stopped = request_managed_motion_stop(args, cycle_label)
+    if not command_stopped:
+        logger.error("%s: 托管停止命令失败，兜底停止 main.py 进程", cycle_label)
+        processes_stopped = stop_main_processes(processes, args.stop_timeout)
+        if not processes_stopped:
+            logger.error("%s: main.py 进程未能全部停止，跳过断电指令", cycle_label)
+            return False
+
+        logger.info("%s: 已兜底终止 main.py 进程，发送断电指令后退出循环", cycle_label)
+        send_command(serial_port, POWER_OFF_COMMAND, "断电")
+        return False
+
+    if terminate_processes:
+        logger.info("%s: 退出流程需要终止长驻 main.py 进程", cycle_label)
+        if not stop_main_processes(processes, args.stop_timeout):
+            logger.error("%s: main.py 进程未能全部停止，跳过断电指令", cycle_label)
+            return False
+
+    logger.info("%s: 运动/进程停止流程已完成，发送断电指令", cycle_label)
+    send_command(serial_port, POWER_OFF_COMMAND, "断电")
+    return True
+
+
+def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStartCounter) -> int:
     logger.info(
         "开始电源通断托管循环: "
         "preset=%s, mode=%s, count=%s, start_delay=%ss, 上电=%ss, 断电=%ss, "
-        "stop_timeout=%ss",
+        "control_timeout=%ss, stop_timeout=%ss",
         ACTIVE_PRESET,
         args.communication_mode,
         args.launch_count,
         args.start_delay,
         args.on_seconds,
         args.off_seconds,
+        args.control_timeout,
         args.stop_timeout,
     )
-    processes = []
+    processes = start_managed_main_processes(args)
 
     try:
         cycle_index = 1
@@ -166,13 +326,29 @@ def run_power_cycle_loop(serial_port: SerialPort, args) -> int:
             send_command(serial_port, POWER_ON_COMMAND, "上电")
             sleep_with_interrupt(args.start_delay)
 
-            logger.info("power cycle %s: 启动 main.py 进程", cycle_index)
-            processes = start_main_processes(
-                args.communication_mode,
-                args.launch_count,
-                new_process_group=True,
-                stop_timeout=args.stop_timeout,
-            )
+            home_started_counted = False
+
+            def mark_home_started(_data, _progress):
+                nonlocal home_started_counted
+                if home_started_counted:
+                    return
+                home_started_counted = True
+                start_counter.mark_started(cycle_index)
+
+            if not request_managed_motion_start(
+                args,
+                f"power cycle {cycle_index}",
+                on_home_started=mark_home_started,
+            ):
+                logger.error("power cycle %s: 托管启动运动失败，准备停止进程并断电后退出", cycle_index)
+                stop_motion_then_power_off(
+                    serial_port,
+                    processes,
+                    args,
+                    f"power cycle {cycle_index} 启动失败",
+                    terminate_processes=True,
+                )
+                return 1
 
             remaining_on_seconds = args.on_seconds - (time.monotonic() - power_on_at)
             if remaining_on_seconds > 0:
@@ -185,31 +361,37 @@ def run_power_cycle_loop(serial_port: SerialPort, args) -> int:
                     args.on_seconds,
                 )
 
-            logger.info("power cycle %s: 断电并停止 main.py 进程", cycle_index)
-            send_command(serial_port, POWER_OFF_COMMAND, "断电")
-            stopped = stop_main_processes(processes, args.stop_timeout)
-            processes = []
+            logger.info("power cycle %s: 停止运动并断开连接，完成后断电", cycle_index)
+            stopped = stop_motion_then_power_off(
+                serial_port,
+                processes,
+                args,
+                f"power cycle {cycle_index}",
+            )
             if not stopped:
-                logger.error("power cycle %s: main.py 进程未能全部停止，退出电源循环", cycle_index)
+                logger.error("power cycle %s: 停止流程未完成，退出电源循环", cycle_index)
                 return 1
 
             sleep_with_interrupt(args.off_seconds)
             cycle_index += 1
     except KeyboardInterrupt:
-        logger.info("收到退出信号，停止 main.py 进程并发送断电指令")
-        stop_main_processes(processes, args.stop_timeout)
-        try:
-            send_command(serial_port, POWER_OFF_COMMAND, "断电")
-        except Exception as exc:
-            logger.exception("退出前断电失败: %s", exc)
-        return 0
+        logger.info("收到退出信号，先停止运动和长驻 main.py 进程，完成后发送断电指令")
+        return 0 if stop_motion_then_power_off(
+            serial_port,
+            processes,
+            args,
+            "退出流程",
+            terminate_processes=True,
+        ) else 1
     except Exception as exc:
         logger.exception("电源通断托管循环运行失败: %s", exc)
-        stop_main_processes(processes, args.stop_timeout)
-        try:
-            send_command(serial_port, POWER_OFF_COMMAND, "断电")
-        except Exception as power_exc:
-            logger.exception("异常后断电失败: %s", power_exc)
+        stop_motion_then_power_off(
+            serial_port,
+            processes,
+            args,
+            "异常流程",
+            terminate_processes=True,
+        )
         return 1
 
 
@@ -229,12 +411,14 @@ def main() -> int:
     if CONFIG_LOAD_ERROR is not None:
         logger.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
     serial_port = None
+    start_counter = MainStartCounter()
+    start_counter.setup()
 
     try:
         logger.info("准备主电源控制串口，先执行 RS485 模式配置脚本")
         setup_rs485_mode()
         serial_port = open_power_serial(args)
-        return run_power_cycle_loop(serial_port, args)
+        return run_power_cycle_loop(serial_port, args, start_counter)
     except Exception as exc:
         logger.exception("main_power_cycle.py 运行失败: %s", exc)
         return 1
@@ -242,6 +426,7 @@ def main() -> int:
         if serial_port:
             serial_port.close()
             logger.info("主电源串口已关闭")
+        start_counter.cleanup()
 
 
 if __name__ == "__main__":

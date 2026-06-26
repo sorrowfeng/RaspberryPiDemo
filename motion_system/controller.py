@@ -1,10 +1,16 @@
 import logging
+import threading
 import time
 
 import keyboard
 
 from config import AUTO_CONNECT, AUTO_CYCLE_RUNNING
 from gpio_controller import GPIO_PINS
+from main_runtime_control import (
+    complete_control_command,
+    emit_control_progress,
+    read_control_command,
+)
 
 try:
     import RPi.GPIO as GPIO
@@ -33,6 +39,102 @@ class MotionController:
         self.grasp_manager = GraspManager(self.session, self.runtime_state)
         self.glove_service = GloveListenerService(self.session)
         self.config_switcher = ConfigSwitcher(self)
+        self.shutdown_requested = threading.Event()
+        self._cleanup_lock = threading.Lock()
+        self._cleaned_up = False
+
+    def request_shutdown(self, reason: str = ""):
+        if reason:
+            logging.info("收到退出请求: %s", reason)
+        else:
+            logging.info("收到退出请求")
+        self.shutdown_requested.set()
+        self.runtime_state.stop()
+
+    def start_managed_cycle(self, command=None):
+        logging.info("托管命令: 连接设备、回零并开始循环运动")
+        self.runtime_state.stop()
+        self.glove_service.stop()
+
+        if self.session.controller.is_connected:
+            logging.info("设备已连接，先停止并断开后重新初始化")
+            self.session.controller.stop_motors()
+            time.sleep(0.1)
+            self.session.disconnect()
+            self.session.set_disconnected_status()
+
+        def on_home_start():
+            if command is None:
+                return
+            emit_control_progress(
+                self.session.controller.communication_mode,
+                self.session.device_index,
+                command,
+                "home_started",
+                "回零指令已发送",
+            )
+
+        if not self.session.connect(on_home_start=on_home_start):
+            logging.error("托管命令: 设备连接/回零失败")
+            self.session.set_disconnected_status()
+            return False, "设备连接/回零失败"
+
+        self.session.set_connected_status()
+        self.on_start_motion()
+        return True, "循环运动已启动"
+
+    def stop_managed_cycle(self):
+        logging.info("托管命令: 停止循环运动并断开连接")
+        self.runtime_state.stop()
+        self.glove_service.stop()
+
+        if self.session.controller.is_connected:
+            self.session.controller.stop_motors()
+            time.sleep(0.1)
+            self.session.disconnect()
+
+        self.session.set_disconnected_status()
+        return True, "循环运动已停止，设备已断开"
+
+    def _handle_control_command(self, command):
+        action = command.get("action")
+        if action == "start_cycle":
+            return self.start_managed_cycle(command)
+        if action == "stop_cycle":
+            return self.stop_managed_cycle()
+        if action == "shutdown":
+            self.request_shutdown("control command")
+            return True, "已请求 main.py 退出"
+
+        return False, f"未知控制命令: {action}"
+
+    def _poll_control_command(self):
+        command = read_control_command(
+            self.session.controller.communication_mode,
+            self.session.device_index,
+        )
+        if not command:
+            return
+
+        logging.info(
+            "收到 main.py 控制命令: action=%s, id=%s",
+            command.get("action"),
+            command.get("id"),
+        )
+        try:
+            ok, message = self._handle_control_command(command)
+        except Exception as exc:
+            logging.exception("执行 main.py 控制命令异常: %s", exc)
+            ok = False
+            message = str(exc)
+
+        complete_control_command(
+            self.session.controller.communication_mode,
+            self.session.device_index,
+            command,
+            ok,
+            message,
+        )
 
     def setup_gpio(self):
         if not self.session.enable_gpio or not self.session.gpio or GPIO is None:
@@ -92,6 +194,9 @@ class MotionController:
         logging.info("GPIO 触发: 断开设备")
         self.runtime_state.stop()
         self.glove_service.stop()
+        if self.session.controller.is_connected:
+            self.session.controller.stop_motors()
+            time.sleep(0.1)
         self.session.disconnect()
         self.session.set_disconnected_status()
         logging.info("设备已断开")
@@ -145,26 +250,45 @@ class MotionController:
         return 0
 
     def _cleanup(self):
+        with self._cleanup_lock:
+            if self._cleaned_up:
+                return
+            self._cleaned_up = True
+
         logging.info("正在清理资源...")
         self.runtime_state.stop()
         self.glove_service.stop()
         if self.session.controller.is_connected:
+            logging.info("正在停止运动...")
+            self.session.controller.stop_motors()
+            time.sleep(0.1)
             self.session.disconnect()
+        self.session.set_disconnected_status()
         self.session.cleanup_gpio()
         logging.info("资源清理完成")
 
-    def run(self):
+    def run(self, managed_control: bool = False):
         logging.info("=" * 50)
         logging.info("LHandPro GPIO 控制程序")
         logging.info("=" * 50)
 
         self._setup_runtime()
-        result = self._handle_auto_connect()
-        if result != 0:
-            return result
+        if managed_control:
+            logging.info("main.py 进入电源通断托管模式，等待外部控制命令")
+            if self.session.enable_gpio:
+                self.session.set_disconnected_status()
+        else:
+            result = self._handle_auto_connect()
+            if result != 0:
+                return result
 
         try:
             while True:
+                if self.shutdown_requested.is_set():
+                    logging.info("检测到退出请求，准备退出主循环")
+                    break
+                if managed_control:
+                    self._poll_control_command()
                 if keyboard.is_pressed("esc"):
                     logging.info("Esc 键按下，正在退出...")
                     break

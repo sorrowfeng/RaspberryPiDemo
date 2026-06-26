@@ -270,5 +270,8 @@ def export_legacy_config(
             "MAIN_POWER_CYCLE_STOP_TIMEOUT": feature_flags.get(
                 "main_power_cycle_stop_timeout", 5.0
             ),
+            "MAIN_POWER_CYCLE_CONTROL_TIMEOUT": feature_flags.get(
+                "main_power_cycle_control_timeout", 15.0
+            ),
         }
     )

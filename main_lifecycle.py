@@ -62,14 +62,44 @@ def start_process(cmd, new_process_group: bool = False):
     return process
 
 
-def build_main_command(python_cmd, communication_mode: str, launch_count: int, index: int):
+def build_main_command(
+    python_cmd,
+    communication_mode: str,
+    launch_count: int,
+    index: int,
+    managed_control: bool = False,
+):
     cmd = python_cmd + [
         "main.py",
         f"--communication-mode={communication_mode}",
     ]
     if launch_count > 1:
         cmd.append(f"--device-index={index}")
+    if managed_control:
+        cmd.append("--managed-by-power-cycle")
     return cmd
+
+
+def request_existing_main_stop(
+    communication_mode: str,
+    python_cmd=None,
+    *,
+    timeout: float = DEFAULT_STOP_TIMEOUT,
+) -> int:
+    python_cmd = python_cmd or build_python_cmd()
+    cmd = python_cmd + [
+        "main.py",
+        "--stop-existing",
+        f"--communication-mode={communication_mode}",
+        f"--stop-timeout={timeout}",
+    ]
+    logger.info("请求已运行 main.py 优雅退出: %s", cmd)
+    result = subprocess.run(cmd, check=False)
+    if result.returncode == 0:
+        logger.info("main.py --stop-existing 已完成: returncode=%s", result.returncode)
+    else:
+        logger.warning("main.py --stop-existing 返回非零: returncode=%s", result.returncode)
+    return result.returncode
 
 
 def start_main_processes(
@@ -83,6 +113,7 @@ def start_main_processes(
     continue_on_error: bool = False,
     stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     startup_check_delay: float = 0.2,
+    managed_control: bool = False,
 ):
     if prepare:
         prepare_bus(communication_mode)
@@ -92,7 +123,13 @@ def start_main_processes(
 
     for index in range(launch_count):
         try:
-            cmd = build_main_command(python_cmd, communication_mode, launch_count, index)
+            cmd = build_main_command(
+                python_cmd,
+                communication_mode,
+                launch_count,
+                index,
+                managed_control=managed_control,
+            )
             logger.debug("启动 main.py 命令: %s", cmd)
             process = start_process(cmd, new_process_group=new_process_group)
             processes.append(process)
@@ -150,7 +187,7 @@ def terminate_process(process):
     pgid = getattr(process, "_managed_pgid", None)
     if pgid is not None and not sys.platform.startswith("win32"):
         try:
-            os.killpg(pgid, signal.SIGINT)
+            os.killpg(pgid, signal.SIGTERM)
             return
         except ProcessLookupError:
             return
@@ -169,9 +206,9 @@ def terminate_process(process):
         return
 
     try:
-        os.killpg(process.pid, signal.SIGINT)
+        os.killpg(process.pid, signal.SIGTERM)
     except ProcessLookupError:
-        return
+        process.terminate()
     except Exception:
         process.terminate()
 
@@ -197,7 +234,7 @@ def kill_process(process):
     try:
         os.killpg(process.pid, signal.SIGKILL)
     except ProcessLookupError:
-        return
+        process.kill()
     except Exception:
         process.kill()
 

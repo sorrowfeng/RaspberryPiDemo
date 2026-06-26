@@ -314,6 +314,7 @@ class GPIO_PINS:
     - GPIO 6  (物理引脚31) - 常规GPIO - CYCLE_COMPLETE[1]
     - GPIO 13 (物理引脚33) - PWM1 - CYCLE_COMPLETE[2]
     - GPIO 19 (物理引脚35) - PWM0 - CYCLE_COMPLETE[3]
+    - GPIO 12 (物理引脚32) - 主电源通断测试回零启动计数
     - GPIO 16 (物理引脚36) - 常规GPIO - READY_STATUS
     - GPIO 20 (物理引脚38) - PCM_CLK - RUNNING_STATUS
     - GPIO 21 (物理引脚40) - PCM_DOUT - STATUS_LED
@@ -331,6 +332,7 @@ class GPIO_PINS:
     CYCLE_COMPLETE = [5, 6, 13, 19]   # 循环完成信号输出数组，根据设备索引选择对应引脚：
                                       # 索引0: GPIO 5 (物理引脚29), 索引1: GPIO 6 (物理引脚31), 
                                       # 索引2: GPIO 13 (物理引脚33), 索引3: GPIO 19 (物理引脚35)
+    POWER_CYCLE_MAIN_START_COUNT = 12  # 主电源通断测试中，每轮开始回零后输出一次计数脉冲
     READY_STATUS = 16      # 程序已准备好/待命状态 (物理引脚36)
     RUNNING_STATUS = 20    # 循环运行中状态 (物理引脚38)
     STATUS_LED = 21       # 连接状态LED输出 (物理引脚40)

@@ -33,5 +33,6 @@ PRESET = {
         "main_power_cycle_baud_rate": 9600,
         "main_power_cycle_port": None,
         "main_power_cycle_stop_timeout": 5.0,
+        "main_power_cycle_control_timeout": 15.0,
     },
 }

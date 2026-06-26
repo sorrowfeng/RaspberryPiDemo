@@ -136,6 +136,7 @@ class LHandProController:
         rs485_port_name: str = None,
         rs485_baud_rate: int = 500000,
         rs485_node_id: int = 1,
+        on_home_start=None,
     ) -> bool:
         """
         连接并初始化 LHandPro 设备
@@ -156,6 +157,7 @@ class LHandProController:
             rs485_port_name: 串口名称，如 'COM1' 或 '/dev/ttyUSB0'，None则自动选择
             rs485_baud_rate: 波特率，None则使用config中的RS485_BAUD_RATE
             rs485_node_id: 节点ID，None则使用config中的RS485_NODE_ID
+            on_home_start: 回零指令成功发出后的回调
 
         Returns:
             bool: 连接是否成功
@@ -175,6 +177,7 @@ class LHandProController:
                     canfd_dat_baudrate=canfd_dat_baudrate,
                     device_index=device_index,
                     auto_select=auto_select,
+                    on_home_start=on_home_start,
                 )
             elif self.communication_mode == "ECAT":
                 retn = self._connect_ecat(
@@ -183,6 +186,7 @@ class LHandProController:
                     home_wait_time=home_wait_time,
                     channel_index=device_index,
                     auto_select=auto_select,
+                    on_home_start=on_home_start,
                 )
             elif self.communication_mode == "RS485":
                 retn = self._connect_rs485(
@@ -193,6 +197,7 @@ class LHandProController:
                     baud_rate=rs485_baud_rate,
                     node_id=rs485_node_id,
                     device_index=device_index,
+                    on_home_start=on_home_start,
                 )
 
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
@@ -227,6 +232,7 @@ class LHandProController:
         canfd_dat_baudrate,
         device_index,
         auto_select,
+        on_home_start=None,
     ):
         """使用CANFD模式连接设备"""
         # 初始化CANFD
@@ -312,10 +318,21 @@ class LHandProController:
         self.lhp.initial_ex(LCN_CANFD, CANFD_NODE_ID)
 
         # 执行通用初始化步骤
-        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+        return self._common_initialization(
+            enable_motors,
+            home_motors,
+            home_wait_time,
+            on_home_start=on_home_start,
+        )
 
     def _connect_ecat(
-        self, enable_motors, home_motors, home_wait_time, channel_index, auto_select
+        self,
+        enable_motors,
+        home_motors,
+        home_wait_time,
+        channel_index,
+        auto_select,
+        on_home_start=None,
     ):
         """使用ECAT模式连接设备"""
         # 创建 EtherCAT 主站
@@ -412,7 +429,12 @@ class LHandProController:
             return False
 
         # 执行通用初始化步骤
-        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+        return self._common_initialization(
+            enable_motors,
+            home_motors,
+            home_wait_time,
+            on_home_start=on_home_start,
+        )
 
     def _connect_rs485(
         self,
@@ -423,6 +445,7 @@ class LHandProController:
         baud_rate,
         node_id,
         device_index=None,
+        on_home_start=None,
     ):
         """使用RS485模式连接设备"""
         from serial_port import SerialPort
@@ -504,9 +527,14 @@ class LHandProController:
         print("初始化成功")
 
         # 执行通用初始化步骤
-        return self._common_initialization(enable_motors, home_motors, home_wait_time)
+        return self._common_initialization(
+            enable_motors,
+            home_motors,
+            home_wait_time,
+            on_home_start=on_home_start,
+        )
 
-    def _common_initialization(self, enable_motors, home_motors, home_wait_time):
+    def _common_initialization(self, enable_motors, home_motors, home_wait_time, on_home_start=None):
         """通用初始化步骤"""
         # 获取自由度
         self.dof_total, self.dof_active = self.lhp.get_dof()
@@ -522,6 +550,11 @@ class LHandProController:
         if home_motors:
             print("正在回零")
             self.lhp.home_motors(0)
+            if on_home_start:
+                try:
+                    on_home_start()
+                except Exception as exc:
+                    print(f"回零开始回调失败: {exc}")
             time.sleep(home_wait_time)
 
         return True

@@ -131,6 +131,7 @@ Thumbs.db
 # Logs
 *.log
 logs/
+runtime/
 
 # Temporary files
 *.swp
