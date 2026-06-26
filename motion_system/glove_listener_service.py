@@ -29,7 +29,7 @@ class GloveListenerService:
             self.listener.start()
             logging.info("手套 UDP 接收器已启动")
         except Exception as exc:
-            logging.error(f"启动手套 UDP 接收器失败: {exc}")
+            logging.exception("启动手套 UDP 接收器失败: %s", exc)
             with self.lock:
                 self.listening = False
 

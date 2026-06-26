@@ -3,8 +3,11 @@ Program entry for RaspberryPiDemo.
 """
 
 import argparse
+import logging
 import sys
 
+from active_config import ACTIVE_PRESET
+from config import CONFIG_LOAD_ERROR
 from log import setup_logging
 from motion_system import MotionController
 
@@ -65,7 +68,17 @@ def main():
             except ValueError:
                 print("请输入数字")
 
-    setup_logging()
+    device_label = "auto" if args.device_index is None else str(args.device_index)
+    setup_logging(app_name=f"main_{args.communication_mode}_device_{device_label}")
+    logging.info(
+        "main.py 启动参数: preset=%s, communication_mode=%s, device_index=%s, enable_gpio=%s",
+        ACTIVE_PRESET,
+        args.communication_mode,
+        args.device_index,
+        args.enable_gpio,
+    )
+    if CONFIG_LOAD_ERROR is not None:
+        logging.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
     motion_ctrl = MotionController(
         communication_mode=args.communication_mode,
         device_index=args.device_index,

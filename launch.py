@@ -2,15 +2,38 @@
 """Launch one or more controller processes based on the selected bus mode."""
 
 import argparse
+import logging
 import os
 import subprocess
-import sys
 import time
 
-from config import DEFAULT_COMMUNICATION_MODE, DEFAULT_LAUNCH_COUNT
+from active_config import ACTIVE_PRESET
+from config import (
+    CONFIG_LOAD_ERROR,
+    DEFAULT_COMMUNICATION_MODE,
+    DEFAULT_LAUNCH_COUNT,
+    ENABLE_MAIN_POWER_CYCLE_SCRIPT,
+)
+from log import setup_logging
+from main_lifecycle import build_python_cmd, start_main_processes
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOLS_DIR = os.path.join(BASE_DIR, "tools")
+MAIN_POWER_CYCLE_SCRIPT = os.path.join(BASE_DIR, "main_power_cycle.py")
+logger = logging.getLogger(__name__)
+
+
+def _run_main_power_cycle(python_cmd, communication_mode, launch_count) -> int:
+    if not os.path.exists(MAIN_POWER_CYCLE_SCRIPT):
+        raise FileNotFoundError(f"主电源控制脚本不存在: {MAIN_POWER_CYCLE_SCRIPT}")
+
+    cmd = python_cmd + [
+        MAIN_POWER_CYCLE_SCRIPT,
+        f"--communication-mode={communication_mode}",
+        f"--launch-count={launch_count}",
+    ]
+    logger.info("电源通断模式已启用，交由 main_power_cycle.py 管理生命周期")
+    logger.debug("main_power_cycle command: %s", cmd)
+    return subprocess.run(cmd).returncode
 
 
 def main() -> int:
@@ -35,41 +58,42 @@ def main() -> int:
     communication_mode = args.communication_mode or DEFAULT_COMMUNICATION_MODE
     launch_count = args.launch_count if args.launch_count is not None else DEFAULT_LAUNCH_COUNT
 
-    print(f"Launching LHandPro devices. mode={communication_mode}, count={launch_count}")
+    setup_logging(app_name="launch")
+    logger.info(
+        "launch.py 启动参数: preset=%s, communication_mode=%s, launch_count=%s, "
+        "enable_main_power_cycle=%s",
+        ACTIVE_PRESET,
+        communication_mode,
+        launch_count,
+        ENABLE_MAIN_POWER_CYCLE_SCRIPT,
+    )
+    if CONFIG_LOAD_ERROR is not None:
+        logger.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
 
-    if communication_mode == "RS485":
-        print("Preparing USB-to-RS485 adapters...")
-        subprocess.run([sys.executable, os.path.join(TOOLS_DIR, "setup_rs485_mode.py")], check=False)
+    python_cmd = build_python_cmd()
+    logger.debug("python command: %s", python_cmd)
 
-    if sys.platform.startswith("win32"):
-        python_cmd = ["python3"] if sys.executable.endswith("python3") else ["python"]
-    else:
-        python_cmd = ["sudo", "python3"]
-
-    for index in range(launch_count):
+    if ENABLE_MAIN_POWER_CYCLE_SCRIPT:
         try:
-            cmd = python_cmd + [
-                "main.py",
-                f"--communication-mode={communication_mode}",
-            ]
-            if launch_count > 1:
-                cmd.append(f"--device-index={index}")
-
-            process = subprocess.Popen(cmd)
-            label = f"device {index}" if launch_count > 1 else "device"
-            print(f"{label} started, pid={process.pid}")
-            time.sleep(1)
+            return _run_main_power_cycle(python_cmd, communication_mode, launch_count)
         except Exception as exc:
-            label = str(index) if launch_count > 1 else ""
-            print(f"Failed to start device {label}: {exc}")
+            logger.exception("启动 main_power_cycle.py 失败: %s", exc)
+            return 1
 
-    print("All launch requests submitted. Press Ctrl+C to exit.")
+    start_main_processes(
+        communication_mode,
+        launch_count,
+        python_cmd=python_cmd,
+        continue_on_error=True,
+    )
+
+    logger.info("所有启动请求已提交，按 Ctrl+C 退出 launch.py")
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("Exiting launcher...")
+        logger.info("收到中断信号，launch.py 退出")
 
     return 0
 

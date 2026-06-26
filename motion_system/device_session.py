@@ -37,6 +37,13 @@ class DeviceSession:
         return GPIO_PINS.CYCLE_COMPLETE[device_index]
 
     def connect(self) -> bool:
+        logging.info(
+            "准备连接设备: mode=%s, device_index=%s, rs485_port=%s, home_wait_time=%s",
+            self.controller.communication_mode,
+            self.device_index,
+            RS485_PORT_NAME,
+            DEFAULT_HOME_TIME,
+        )
         return self.controller.connect(
             enable_motors=True,
             home_motors=True,

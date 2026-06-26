@@ -249,5 +249,26 @@ def export_legacy_config(
             "ENABLE_ALARM_CHECK": feature_flags["enable_alarm_check"],
             "ENABLE_HOME_CHECK": feature_flags["enable_home_check"],
             "ENABLE_TORQUE_CONTROL": feature_flags["enable_torque_control"],
+            "ENABLE_MAIN_POWER_CYCLE_SCRIPT": feature_flags.get(
+                "enable_main_power_cycle", False
+            ),
+            "MAIN_POWER_CYCLE_START_DELAY": feature_flags.get(
+                "main_power_cycle_start_delay", 1.0
+            ),
+            "MAIN_POWER_CYCLE_ON_SECONDS": feature_flags.get(
+                "main_power_cycle_on_seconds", 35.0
+            ),
+            "MAIN_POWER_CYCLE_OFF_SECONDS": feature_flags.get(
+                "main_power_cycle_off_seconds", 3.0
+            ),
+            "MAIN_POWER_CYCLE_BAUD_RATE": feature_flags.get(
+                "main_power_cycle_baud_rate", 9600
+            ),
+            "MAIN_POWER_CYCLE_PORT": feature_flags.get(
+                "main_power_cycle_port", None
+            ),
+            "MAIN_POWER_CYCLE_STOP_TIMEOUT": feature_flags.get(
+                "main_power_cycle_stop_timeout", 5.0
+            ),
         }
     )

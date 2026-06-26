@@ -142,7 +142,7 @@ class CycleMotionManager:
                 )
                 logging.info(f"已完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
         except Exception as exc:
-            logging.error(f"循环运动异常: {exc}")
+            logging.exception("循环运动异常: %s", exc)
         finally:
             self.runtime_state.mark_idle()
             self.session.set_ready_status()

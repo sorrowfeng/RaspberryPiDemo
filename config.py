@@ -7,12 +7,15 @@ from config_support import (
     export_legacy_config,
 )
 
+CONFIG_LOAD_ERROR = None
+
 try:
     runtime_config = build_runtime_configuration(
         preset_module=ACTIVE_PRESET or DEFAULT_ACTIVE_PRESET,
         runtime_overrides=RUNTIME_OVERRIDES,
     )
-except Exception:
+except Exception as exc:
+    CONFIG_LOAD_ERROR = exc
     runtime_config = build_runtime_configuration(
         preset_module=DEFAULT_ACTIVE_PRESET,
         runtime_overrides={"device": {}},

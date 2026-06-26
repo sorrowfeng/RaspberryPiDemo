@@ -31,6 +31,10 @@ CONFIG_PRESETS = [
         "feedback_positions": [3000, 3000, 0, 0, 0, 10000],
     },
     {
+        "module": "configs.config_DH116S_CANFD_power_cycle_test",
+        "feedback_positions": [0, 0, 0, 0, 0, 0],
+    },
+    {
         "module": "configs.config_DH116_CANFD_aging",
         "feedback_positions": [3000, 3000, 0, 0, 0, 0],
     },
@@ -217,7 +221,7 @@ class ConfigSwitcher:
             )
             logging.info(f"反馈动作执行完成: positions={preset['feedback_positions']}")
         except Exception as e:
-            logging.error(f"反馈动作执行失败: {e}")
+            logging.exception("反馈动作执行失败: %s", e)
 
     def _on_write_timeout(self):
         with self._lock:
@@ -228,7 +232,7 @@ class ConfigSwitcher:
             write_active_config(preset_module)
             logging.info("active_config.py 已更新")
         except Exception as e:
-            logging.error(f"写入 active_config.py 失败: {e}")
+            logging.exception("写入 active_config.py 失败: %s", e)
 
     def _on_timeout(self):
         logging.info("30秒超时，正在清理资源并重启...")
@@ -236,7 +240,7 @@ class ConfigSwitcher:
         try:
             self.motion_controller._cleanup()
         except Exception as e:
-            logging.error(f"清理资源时出错: {e}")
+            logging.exception("清理资源时出错: %s", e)
 
         logging.info("正在执行系统重启...")
         result = subprocess.run(
