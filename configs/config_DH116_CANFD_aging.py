@@ -9,10 +9,10 @@ PRESET = {
     },
     "motion": {
         "default_home_time": 5.0,
-        "default_cycle_count": 1100,
+        "default_cycle_count": 900,
         "cycle_run_plan": [
             {"cycles": 100, "velocity_scale": 0.2},
-            {"cycles": 500, "velocity_scale": 0.5},
+            {"cycles": 300, "velocity_scale": 0.5},
             {"cycles": 500, "velocity_scale": 1.0},
         ],
         "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],

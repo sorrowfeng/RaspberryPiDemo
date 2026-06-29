@@ -3,10 +3,7 @@ SEQUENCE = {
     "default_currents": [1000, 1000, 1000, 1000, 1000, 1000],
     "default_interval": 0.8,
     "steps": [
-        {"positions": [5000, 0, 0, 0, 0, 0]},
-        {"positions": [5000, 0, 10000, 10000, 10000, 10000]},
+        {"positions": [0, 0, 0, 0, 0, 0], "interval": 1.0},
         {"positions": [5000, 10000, 10000, 10000, 10000, 10000], "interval": 4.0},
-        {"positions": [5000, 0, 10000, 10000, 10000, 10000]},
-        {"positions": [5000, 0, 0, 0, 0, 0], "interval": 1.0},
     ],
 }
