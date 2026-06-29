@@ -140,3 +140,7 @@ runtime/
 
 # Local config files
 local_config.py
+
+# Generated documentation exports
+config_switcher_feedback_table.html
+config_switcher_feedback_table.tsv
