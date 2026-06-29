@@ -12,67 +12,87 @@ from gpio_controller import GPIO_PINS
 TIMEOUT_SECONDS = 30
 WRITE_TIMEOUT_SECONDS = 5
 LONG_PRESS_SECONDS = 1.5
+FEEDBACK_DIGIT_HOLD_SECONDS = 1.0
+FEEDBACK_DIGIT_GAP_SECONDS = 0.35
+FEEDBACK_SEPARATOR_POSITIONS = [5000, 5000, 5000, 5000, 5000, 5000]
+
+FEEDBACK_DIGIT_POSITIONS = {
+    0: [9000, 3000, 10000, 10000, 10000, 10000],
+    1: [3000, 3000, 0, 10000, 10000, 10000],
+    2: [3000, 3000, 0, 0, 10000, 10000],
+    3: [3000, 3000, 0, 0, 0, 10000],
+    4: [3000, 3000, 0, 0, 0, 0],
+    5: [0, 0, 0, 0, 0, 0],
+    6: [0, 0, 10000, 10000, 10000, 0],
+    7: [0, 0, 0, 10000, 10000, 0],
+    8: [0, 0, 0, 10000, 10000, 10000],
+    9: [0, 8000, 4000, 10000, 10000, 10000],
+}
 
 CONFIG_PRESETS = [
     {
         "module": "configs.config_runtime_default",
-        "feedback_positions": [9000, 3000, 10000, 10000, 10000, 10000],
+        "feedback_id": 0,
     },
     {
         "module": "configs.config_DH116S_CANFD_aging",
-        "feedback_positions": [3000, 3000, 0, 10000, 10000, 10000],
+        "feedback_id": 1,
     },
     {
         "module": "configs.config_DH116S_CANFD_grasp_aging",
-        "feedback_positions": [3000, 3000, 0, 0, 10000, 10000],
-    },
-    {
-        "module": "configs.config_DH116S_ECAT_aging",
-        "feedback_positions": [3000, 3000, 10000, 10000, 10000, 0],
-    },
-    {
-        "module": "configs.config_DH116S_ECAT_grasp_aging",
-        "feedback_positions": [3000, 3000, 0, 10000, 10000, 0],
-    },
-    {
-        "module": "configs.config_DH116S_RS485_aging",
-        "feedback_positions": [3000, 8000, 0, 10000, 10000, 10000],
-    },
-    {
-        "module": "configs.config_DH116S_RS485_grasp_aging",
-        "feedback_positions": [3000, 8000, 4000, 10000, 10000, 10000],
+        "feedback_id": 2,
     },
     {
         "module": "configs.config_DH116S_CANFD_gesture_aging",
-        "feedback_positions": [3000, 3000, 0, 0, 0, 10000],
+        "feedback_id": 3,
     },
     {
-        "module": "configs.config_DH116S_CANFD_power_cycle_test",
-        "feedback_positions": [0, 0, 0, 0, 0, 0],
+        "module": "configs.config_DH116S_ECAT_aging",
+        "feedback_id": 4,
+    },
+    {
+        "module": "configs.config_DH116S_ECAT_grasp_aging",
+        "feedback_id": 5,
+    },
+    {
+        "module": "configs.config_DH116S_ECAT_gesture_aging",
+        "feedback_id": 6,
+    },
+    {
+        "module": "configs.config_DH116S_RS485_aging",
+        "feedback_id": 7,
+    },
+    {
+        "module": "configs.config_DH116S_RS485_grasp_aging",
+        "feedback_id": 8,
+    },
+    {
+        "module": "configs.config_DH116S_RS485_gesture_aging",
+        "feedback_id": 9,
     },
     {
         "module": "configs.config_DH116_CANFD_aging",
-        "feedback_positions": [3000, 3000, 0, 0, 0, 0],
+        "feedback_id": 10,
     },
     {
         "module": "configs.config_DH116_CANFD_grasp_aging",
-        "feedback_positions": [0, 0, 0, 0, 0, 0],
+        "feedback_id": 11,
     },
     {
         "module": "configs.config_DH116_ECAT_aging",
-        "feedback_positions": [0, 0, 10000, 10000, 10000, 0],
+        "feedback_id": 12,
     },
     {
         "module": "configs.config_DH116_ECAT_grasp_aging",
-        "feedback_positions": [0, 0, 0, 10000, 10000, 0],
+        "feedback_id": 13,
     },
     {
         "module": "configs.config_DH116_RS485_aging",
-        "feedback_positions": [0, 0, 0, 10000, 10000, 10000],
+        "feedback_id": 14,
     },
     {
         "module": "configs.config_DH116_RS485_grasp_aging",
-        "feedback_positions": [0, 8000, 4000, 10000, 10000, 10000],
+        "feedback_id": 15,
     },
 ]
 
@@ -102,6 +122,12 @@ def write_active_config(preset_module):
 
     with open(ACTIVE_CONFIG_FILE, "w", encoding="utf-8") as file_obj:
         file_obj.write(new_content)
+
+
+def feedback_id_to_digits(feedback_id: int):
+    if feedback_id < 0:
+        raise ValueError(f"feedback_id must be non-negative: {feedback_id}")
+    return [int(char) for char in str(feedback_id)]
 
 
 class ConfigSwitcher:
@@ -232,10 +258,29 @@ class ConfigSwitcher:
             return
 
         try:
-            controller.move_to_positions(
-                positions=preset["feedback_positions"],
+            feedback_id = int(preset["feedback_id"])
+            feedback_digits = feedback_id_to_digits(feedback_id)
+            for index, digit in enumerate(feedback_digits):
+                positions = FEEDBACK_DIGIT_POSITIONS[digit]
+                controller.move_to_positions(positions=positions)
+                logging.info(
+                    "反馈手势: module=%s, feedback_id=%s, digit=%s, positions=%s",
+                    preset["module"],
+                    feedback_id,
+                    digit,
+                    positions,
+                )
+                time.sleep(FEEDBACK_DIGIT_HOLD_SECONDS)
+
+                if index < len(feedback_digits) - 1:
+                    controller.move_to_positions(positions=FEEDBACK_SEPARATOR_POSITIONS)
+                    time.sleep(FEEDBACK_DIGIT_GAP_SECONDS)
+
+            logging.info(
+                "反馈动作执行完成: module=%s, feedback_id=%s",
+                preset["module"],
+                feedback_id,
             )
-            logging.info(f"反馈动作执行完成: positions={preset['feedback_positions']}")
         except Exception as e:
             logging.exception("反馈动作执行失败: %s", e)
 
