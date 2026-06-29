@@ -27,6 +27,22 @@ CONFIG_PRESETS = [
         "feedback_positions": [3000, 3000, 0, 0, 10000, 10000],
     },
     {
+        "module": "configs.config_DH116S_ECAT_aging",
+        "feedback_positions": [3000, 3000, 10000, 10000, 10000, 0],
+    },
+    {
+        "module": "configs.config_DH116S_ECAT_grasp_aging",
+        "feedback_positions": [3000, 3000, 0, 10000, 10000, 0],
+    },
+    {
+        "module": "configs.config_DH116S_RS485_aging",
+        "feedback_positions": [3000, 8000, 0, 10000, 10000, 10000],
+    },
+    {
+        "module": "configs.config_DH116S_RS485_grasp_aging",
+        "feedback_positions": [3000, 8000, 4000, 10000, 10000, 10000],
+    },
+    {
         "module": "configs.config_DH116S_CANFD_gesture_aging",
         "feedback_positions": [3000, 3000, 0, 0, 0, 10000],
     },

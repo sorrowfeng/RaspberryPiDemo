@@ -1,20 +1,25 @@
-DISPLAY_NAME = "DH116 / RS485 / grasp / aging"
+DISPLAY_NAME = "DH116S / ECAT / aging"
 
 PRESET = {
-    "communication": {"default_mode": "RS485", "default_launch_count": 4},
+    "communication": {"default_mode": "ECAT", "default_launch_count": 1},
     "device": {
-        "current_hand_type": "LAC_DOF_6",
+        "current_hand_type": "LAC_DOF_6_S",
         "canfd_node_id": 1,
         "rs485_port_name": None,
     },
     "motion": {
         "default_home_time": 5.0,
-        "default_cycle_count": 2000,
-        "cycle_finish_position": [2500, 5000, 5000, 0, 0, 0],
-        "cycle_sequence": "sequences.common_cycle_dh116_grasp",
+        "default_cycle_count": 1100,
+        "cycle_run_plan": [
+            {"cycles": 100, "velocity_scale": 0.2},
+            {"cycles": 500, "velocity_scale": 0.5},
+            {"cycles": 500, "velocity_scale": 1.0},
+        ],
+        "cycle_finish_position": [7000, 5000, 5000, 0, 0, 0],
+        "cycle_sequence": "sequences.common_cycle_aging",
     },
     "grasp": {
-        "mode": "hold",
+        "mode": "repeat",
         "repeat_count": 3,
         "repeat_sequence": "sequences.common_grasp_dh116s_repeat",
         "hold_grip_sequence": "sequences.common_grasp_dh116s_hold_grip",
@@ -24,7 +29,7 @@ PRESET = {
         "auto_connect": True,
         "auto_cycle_running": True,
         "enable_alarm_check": True,
-        "enable_home_check": False,
+        "enable_home_check": True,
         "enable_torque_control": False,
     },
 }
