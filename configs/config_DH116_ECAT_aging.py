@@ -29,7 +29,7 @@ PRESET = {
         "auto_connect": True,
         "auto_cycle_running": True,
         "enable_alarm_check": True,
-        "enable_home_check": True,
+        "enable_home_check": False,
         "enable_torque_control": False,
     },
 }

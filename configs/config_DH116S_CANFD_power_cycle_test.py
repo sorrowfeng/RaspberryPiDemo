@@ -23,8 +23,8 @@ PRESET = {
     "features": {
         "auto_connect": True,
         "auto_cycle_running": True,
-        "enable_alarm_check": True,
-        "enable_home_check": True,
+        "enable_alarm_check": False,
+        "enable_home_check": False,
         "enable_torque_control": False,
         "enable_main_power_cycle": True,
         "main_power_cycle_start_delay": 2.0,
