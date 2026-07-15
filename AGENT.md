@@ -61,13 +61,14 @@
   - 动作序列。
   - 统一描述 `positions`、`velocities`、`currents`、`interval`。
 
-当前主电源通断测试 preset：
+主电源通断测试 preset：
 
-```python
-ACTIVE_PRESET = "configs.config_DH116S_CANFD_power_cycle_test"
-```
+- `configs.config_DH116S_CANFD_power_cycle_test`
+- `configs.config_DH116S_ECAT_power_cycle_test`
 
-该 preset 启用：
+其中 ECAT preset 的 `default_launch_count=1`，单个长驻 `main.py` 会自动选择唯一可用网口。
+
+这两个 preset 都启用：
 
 ```python
 "enable_main_power_cycle": True

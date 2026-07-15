@@ -45,6 +45,7 @@ class LHandProController:
         self.ec_master = None
         self.stop_flag = None
         self.monitor_thread = None
+        self._ecat_callback_lock = threading.Lock()
 
         # RS485 相关属性
         self.serial_port = None
@@ -107,20 +108,31 @@ class LHandProController:
 
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
-        if self.ec_master:
-            return self.ec_master.setOutputs(data, len(data))
-        print("EC master not initialized!")
+        try:
+            with self._ecat_callback_lock:
+                if not self.is_connected:
+                    return False
+                ec_master = self.ec_master
+                if not ec_master or not ec_master.running:
+                    return False
+                return ec_master.setOutputs(data, len(data))
+        except Exception as e:
+            print(f"EtherCAT发送失败: {e}")
         return False
 
     def _monitor_thread_func(self):
         """监控线程函数：刷新解析 TPDO 数据"""
-        while not self.stop_flag.is_set() and self.is_connected:
-            if self.ec_master:
-                input_size = self.ec_master.getInputSize()
-                inputs = self.ec_master.getInputs(input_size)
-                if inputs is not None and self.lhp:
-                    self.lhp.set_tpdo_data_decode(inputs)
-            time.sleep(0.01)  # 10ms
+        try:
+            while not self.stop_flag.is_set() and self.is_connected:
+                if self.ec_master:
+                    input_size = self.ec_master.getInputSize()
+                    inputs = self.ec_master.getInputs(input_size)
+                    if inputs is not None and self.lhp:
+                        self.lhp.set_tpdo_data_decode(inputs)
+                time.sleep(0.01)  # 10ms
+        except Exception as e:
+            if self.stop_flag and not self.stop_flag.is_set():
+                print(f"EtherCAT接收监控线程异常: {e}")
 
     def connect(
         self,
@@ -200,6 +212,10 @@ class LHandProController:
                     on_home_start=on_home_start,
                 )
 
+            if not retn:
+                self.disconnect()
+                return False
+
             self.lhp.set_hand_type(CURRENT_HAND_TYPE)
 
             if ENABLE_HOME_CHECK:
@@ -217,10 +233,10 @@ class LHandProController:
 
         except (LHandProLibError, Exception) as e:
             print(f"操作失败: {e}")
-            if self.lhp:
-                self.lhp.close()
-                self.lhp = None
-            self._cleanup_communication_resources()
+            try:
+                self.disconnect()
+            except Exception as cleanup_error:
+                print(f"连接失败后的资源清理异常: {cleanup_error}")
             return False
 
     def _connect_canfd(
@@ -567,32 +583,56 @@ class LHandProController:
         elif self.communication_mode == "ECAT":
             if self.stop_flag:
                 self.stop_flag.set()
-            if self.monitor_thread and self.monitor_thread.is_alive():
-                self.monitor_thread.join(timeout=2.0)
-            if self.ec_master:
-                self.ec_master.stop()
-                time.sleep(0.1)
-                self.ec_master = None
+            monitor_thread = self.monitor_thread
+            if monitor_thread and monitor_thread.is_alive():
+                monitor_thread.join(timeout=2.0)
+                if monitor_thread.is_alive():
+                    raise RuntimeError("EtherCAT TPDO 监控线程未在超时时间内退出")
+            self.monitor_thread = None
+            self.stop_flag = None
+
+            with self._ecat_callback_lock:
+                ec_master = self.ec_master
+                if ec_master:
+                    ec_master.stop()
+                    time.sleep(0.1)
+                    if self.ec_master is ec_master:
+                        self.ec_master = None
         elif self.communication_mode == "RS485" and self.serial_port:
             self.serial_port.close()
             self.serial_port = None
 
     def disconnect(self):
         """断开连接并清理资源"""
-        if not self.is_connected:
+        has_resources = any(
+            (
+                self.is_connected,
+                self.lhp is not None,
+                self.canfd is not None,
+                self.ec_master is not None,
+                self.serial_port is not None,
+            )
+        )
+        if not has_resources:
             return
 
         print("正在断开连接...")
 
-        # 关闭库
-        if self.lhp:
-            self.lhp.close()
-            self.lhp = None
+        if self.communication_mode == "ECAT":
+            # ECAT 有两个后台线程，先禁止回调并停止线程，避免访问已关闭的库句柄。
+            self.is_connected = False
+            self._cleanup_communication_resources()
+            if self.lhp:
+                self.lhp.close()
+                self.lhp = None
+        else:
+            # 保持 CANFD/RS485 原有的关闭顺序。
+            if self.lhp:
+                self.lhp.close()
+                self.lhp = None
+            self._cleanup_communication_resources()
+            self.is_connected = False
 
-        # 清理通信资源
-        self._cleanup_communication_resources()
-
-        self.is_connected = False
         print("已断开连接")
 
     def move_to_positions(

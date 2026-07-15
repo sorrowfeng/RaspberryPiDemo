@@ -10,6 +10,8 @@ from typing import List, Optional
 class EthercatMaster:
     """EtherCAT 主站封装类"""
 
+    IO_THREAD_JOIN_TIMEOUT = 2.0
+
     def __init__(self):
         self.master = pysoem.Master()
         self.slaves = []
@@ -18,6 +20,7 @@ class EthercatMaster:
         self.running = False
         self.thread = None
         self.ifname = None
+        self._master_opened = False
 
     def scanNetworkInterfaces(self) -> List[str]:
         """扫描可用网口，过滤虚拟/无线/回环接口，返回物理网卡设备名列表"""
@@ -106,10 +109,12 @@ class EthercatMaster:
 
     def init(self, channel_index: int, ifaces: List[str]) -> bool:
         """初始化 EtherCAT 主站和从站（更贴近SOEM流程）"""
+        initialized = False
         try:
             self.ifname = ifaces[channel_index]
             print(f"🔌 正在初始化 EtherCAT 主站，使用网口: {self.ifname}")
             self.master.open(self.ifname)
+            self._master_opened = True
 
             # 初始化从站配置
             if self.master.config_init() <= 0:
@@ -171,27 +176,55 @@ class EthercatMaster:
             for slave in self.slaves:
                 slave.output = bytes(len(slave.output))
 
+            initialized = True
             return True
 
         except Exception as e:
             print(f"❌ 初始化失败: {e}")
             return False
+        finally:
+            if not initialized:
+                self.stop()
 
     def start(self) -> bool:
         """已包含在 init 中，可留空"""
         return True
 
     def stop(self):
-        """停止主站"""
-        if self.master:
-            self.master.state = pysoem.INIT_STATE
-            self.master.write_state()
-            time.sleep(0.1)
-            self.master.close()
+        """停止 PDO 线程并关闭主站，可安全重复调用。"""
+        self.running = False
+
+        io_thread = self.thread
+        if io_thread and io_thread.is_alive():
+            if io_thread is threading.current_thread():
+                raise RuntimeError("不能从 EtherCAT PDO 线程内部关闭主站")
+            io_thread.join(timeout=self.IO_THREAD_JOIN_TIMEOUT)
+            if io_thread.is_alive():
+                raise RuntimeError("EtherCAT PDO 线程未在超时时间内退出")
+        self.thread = None
+
+        if self.master and self._master_opened:
+            try:
+                self.master.state = pysoem.INIT_STATE
+                self.master.write_state()
+                time.sleep(0.1)
+            except Exception as e:
+                print(f"EtherCAT 主站切换到 INIT 状态失败: {e}")
+
+            try:
+                self.master.close()
+            except Exception as e:
+                raise RuntimeError(f"EtherCAT 主站关闭失败: {e}") from e
+            self._master_opened = False
+
+        self.slaves = []
+        self.input_size = 0
+        self.output_size = 0
+        self.ifname = None
 
     def run(self):
         """启动后台 IO 线程"""
-        if self.running:
+        if self.running and self.thread and self.thread.is_alive():
             return
         self.running = True
         self.thread = threading.Thread(target=self._process_io, daemon=True)
@@ -199,10 +232,16 @@ class EthercatMaster:
 
     def _process_io(self):
         """IO 处理循环"""
-        while self.running:
-            self.master.send_processdata()
-            self.master.receive_processdata(1000)  # 1ms 超时
-            time.sleep(0.001)  # 1ms
+        try:
+            while self.running:
+                self.master.send_processdata()
+                self.master.receive_processdata(1000)  # 1ms 超时
+                time.sleep(0.001)  # 1ms
+        except Exception as e:
+            if self.running:
+                print(f"❌ EtherCAT PDO 通讯线程异常: {e}")
+        finally:
+            self.running = False
 
     def setOutputs(self, data: bytes, size: int) -> bool:
         """设置输出数据"""
