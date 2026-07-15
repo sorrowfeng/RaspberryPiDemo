@@ -45,7 +45,12 @@ class DeviceSession:
             return GPIO_PINS.CYCLE_COMPLETE[0]
         return GPIO_PINS.CYCLE_COMPLETE[device_index]
 
-    def connect(self, on_home_start=None) -> bool:
+    def connect(
+        self,
+        on_home_start=None,
+        connect_retry_interval_seconds: float = 0.0,
+        connect_deadline_monotonic=None,
+    ) -> bool:
         logging.info(
             "准备连接设备: mode=%s, device_index=%s, rs485_port=%s, home_wait_time=%s",
             self.controller.communication_mode,
@@ -61,6 +66,8 @@ class DeviceSession:
             auto_select=self.device_index is None,
             rs485_port_name=self.rs485_port_name,
             on_home_start=on_home_start,
+            ecat_connect_retry_interval_seconds=connect_retry_interval_seconds,
+            ecat_connect_deadline_monotonic=connect_deadline_monotonic,
         )
 
     def disconnect(self):
