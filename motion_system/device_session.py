@@ -8,9 +8,18 @@ from lhandpro_controller import LHandProController
 class DeviceSession:
     """Owns device connection, GPIO access, and indicator outputs."""
 
-    def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
+    def __init__(
+        self,
+        communication_mode: str,
+        device_index: int = None,
+        enable_gpio: bool = True,
+        rs485_port_name: str = None,
+    ):
         self.controller = LHandProController(communication_mode=communication_mode)
         self.device_index = device_index
+        self.rs485_port_name = (
+            rs485_port_name if rs485_port_name is not None else RS485_PORT_NAME
+        )
         self.gpio = None
         self.enable_gpio = self._initialize_gpio(enable_gpio)
         self.cycle_complete_pin = self._select_cycle_complete_pin(device_index)
@@ -41,7 +50,7 @@ class DeviceSession:
             "准备连接设备: mode=%s, device_index=%s, rs485_port=%s, home_wait_time=%s",
             self.controller.communication_mode,
             self.device_index,
-            RS485_PORT_NAME,
+            self.rs485_port_name,
             DEFAULT_HOME_TIME,
         )
         return self.controller.connect(
@@ -50,7 +59,7 @@ class DeviceSession:
             home_wait_time=DEFAULT_HOME_TIME,
             device_index=self.device_index,
             auto_select=self.device_index is None,
-            rs485_port_name=RS485_PORT_NAME,
+            rs485_port_name=self.rs485_port_name,
             on_home_start=on_home_start,
         )
 

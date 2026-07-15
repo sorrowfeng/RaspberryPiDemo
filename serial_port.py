@@ -9,9 +9,10 @@ Python 串口封装类
   队列空时短暂休眠，避免空转
 """
 
-import sys
 import glob
+import os
 import queue
+import sys
 import threading
 import time
 from typing import Optional, List, Callable
@@ -27,6 +28,7 @@ class SerialPort:
     def __init__(self):
         self.serial = None
         self.is_open = False
+        self.port_name = None
         self._worker_thread: Optional[threading.Thread] = None
         self._running = False
         self.read_callback: Optional[Callable[[bytes], None]] = None
@@ -40,8 +42,14 @@ class SerialPort:
         except ImportError:
             raise ImportError("需要安装 pyserial 库: pip install pyserial")
 
-    def scan_available_ports(self) -> List[str]:
-        """扫描可用串口"""
+    @staticmethod
+    def normalize_port_name(port_name: str) -> str:
+        if sys.platform.startswith('linux'):
+            return os.path.realpath(port_name)
+        return os.path.normcase(port_name)
+
+    def scan_available_ports(self, excluded_ports: Optional[List[str]] = None) -> List[str]:
+        """扫描可用串口，并可排除已经分配给其他用途的端口。"""
         ports = []
         try:
             for port in self.serial_module.tools.list_ports.comports():
@@ -62,7 +70,20 @@ class SerialPort:
                 if device not in ports:
                     ports.append(device)
 
-        return ports
+        excluded = {
+            self.normalize_port_name(port)
+            for port in (excluded_ports or [])
+            if port
+        }
+        available_ports = []
+        seen = set()
+        for port in sorted(ports, key=self.normalize_port_name):
+            normalized = self.normalize_port_name(port)
+            if normalized in excluded or normalized in seen:
+                continue
+            seen.add(normalized)
+            available_ports.append(port)
+        return available_ports
 
     def open(self, port_name: str, baud_rate: int = 500000,
              bytesize: int = 8, parity: str = 'N',
@@ -93,6 +114,7 @@ class SerialPort:
                 timeout=timeout
             )
             self.is_open = True
+            self.port_name = port_name
             self._running = True
             self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
             self._worker_thread.start()
@@ -106,12 +128,29 @@ class SerialPort:
         self._running = False
         # 投入一个哨兵值唤醒阻塞中的 get()
         self._send_queue.put(None)
-        if self._worker_thread and self._worker_thread.is_alive():
-            self._worker_thread.join(timeout=2.0)
-        if self.serial and self.is_open:
-            self.serial.close()
-            self.serial = None
+        worker_thread = self._worker_thread
+        if worker_thread and worker_thread.is_alive():
+            if worker_thread is threading.current_thread():
+                raise RuntimeError("不能从串口工作线程内部关闭串口")
+            worker_thread.join(timeout=2.0)
+            if worker_thread.is_alive():
+                raise RuntimeError("串口工作线程未在超时时间内退出")
+        self._worker_thread = None
+
+        serial_connection = self.serial
+        if serial_connection and self.is_open:
+            serial_connection.close()
+            if self.serial is serial_connection:
+                self.serial = None
         self.is_open = False
+        self.port_name = None
+        self.read_callback = None
+
+        while True:
+            try:
+                self._send_queue.get_nowait()
+            except queue.Empty:
+                break
 
     def write(self, data: bytes) -> int:
         """发送数据（放入队列，由工作线程统一发送）
@@ -192,11 +231,7 @@ class SerialPort:
                 except Exception as e:
                     print(f"读取回调执行失败: {e}")
 
-        # 工作线程退出前关闭串口
-        if self.serial and self.is_open:
-            self.serial.close()
-            self.serial = None
-        self.is_open = False
+        # 串口句柄由 close() 在线程确认退出后统一关闭。
 
     def __enter__(self):
         return self

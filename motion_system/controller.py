@@ -28,11 +28,18 @@ from .runtime_state import MotionRuntimeState
 class MotionController:
     """Top-level coordinator that wires all runtime components together."""
 
-    def __init__(self, communication_mode: str, device_index: int = None, enable_gpio: bool = True):
+    def __init__(
+        self,
+        communication_mode: str,
+        device_index: int = None,
+        enable_gpio: bool = True,
+        rs485_port_name: str = None,
+    ):
         self.session = DeviceSession(
             communication_mode=communication_mode,
             device_index=device_index,
             enable_gpio=enable_gpio,
+            rs485_port_name=rs485_port_name,
         )
         self.runtime_state = MotionRuntimeState()
         self.cycle_manager = CycleMotionManager(self.session, self.runtime_state)

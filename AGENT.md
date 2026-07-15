@@ -65,10 +65,11 @@
 
 - `configs.config_DH116S_CANFD_power_cycle_test`
 - `configs.config_DH116S_ECAT_power_cycle_test`
+- `configs.config_DH116S_RS485_power_cycle_test`
 
-其中 ECAT preset 的 `default_launch_count=1`，单个长驻 `main.py` 会自动选择唯一可用网口。
+其中 ECAT preset 的 `default_launch_count=1`，单个长驻 `main.py` 会自动选择唯一可用网口；CANFD 和 RS485 preset 的 `default_launch_count=4`。
 
-这两个 preset 都启用：
+这三个 preset 都启用：
 
 ```python
 "enable_main_power_cycle": True
@@ -81,6 +82,7 @@
 - `main_power_cycle_off_seconds`
 - `main_power_cycle_baud_rate`
 - `main_power_cycle_port`
+- `main_power_cycle_rs485_ports`（仅 RS485 设备通讯，可选的固定四串口列表）
 - `main_power_cycle_stop_timeout`
 - `main_power_cycle_control_timeout`
 
@@ -97,6 +99,17 @@
 ```
 
 避免启动时卡在交互选择。
+
+RS485 上下电模式会从设备候选中排除 `main_power_cycle_port`，并在启动四个长驻进程时固定 `device_index -> 串口` 映射。如果现场还有其他 USB 串口，应同时明确配置四个设备口，例如：
+
+```python
+"main_power_cycle_rs485_ports": [
+    "/dev/ttyXRUSB1",
+    "/dev/ttyXRUSB2",
+    "/dev/ttyXRUSB3",
+    "/dev/ttyXRUSB4",
+]
+```
 
 ## 普通启动流程
 
@@ -132,9 +145,10 @@ sudo python3 main.py --stop-existing
 ```text
 launch.py
   -> main_power_cycle.py
+      -> 清理同通信模式下已存在的 main.py
       -> tools/setup_rs485_mode.py
       -> 打开主电源控制串口
-      -> 清理同通信模式下已存在的 main.py
+      -> RS485 模式排除电源口并固定 N 个设备串口
       -> 启动 N 个长驻 main.py --managed-by-power-cycle
       -> while True:
            发送上电

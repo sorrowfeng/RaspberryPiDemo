@@ -40,6 +40,12 @@ def main():
         help="通信模式，可选值: CANFD, ECAT, RS485；不指定时交互选择",
     )
     parser.add_argument(
+        "--rs485-port",
+        type=str,
+        default=None,
+        help="为当前 main.py 实例固定分配 RS485 串口；不指定时沿用配置或自动扫描",
+    )
+    parser.add_argument(
         "--enable-gpio",
         "-g",
         action="store_true",
@@ -155,10 +161,11 @@ def main():
     setup_logging(app_name=f"main_{args.communication_mode}_device_{device_label}")
     logging.info(
         "main.py 启动参数: preset=%s, communication_mode=%s, device_index=%s, "
-        "enable_gpio=%s, managed_control=%s",
+        "rs485_port=%s, enable_gpio=%s, managed_control=%s",
         ACTIVE_PRESET,
         args.communication_mode,
         args.device_index,
+        args.rs485_port,
         args.enable_gpio,
         args.managed_control,
     )
@@ -169,6 +176,7 @@ def main():
         communication_mode=args.communication_mode,
         device_index=args.device_index,
         enable_gpio=args.enable_gpio,
+        rs485_port_name=args.rs485_port,
     )
     install_signal_handlers(motion_ctrl)
     try:

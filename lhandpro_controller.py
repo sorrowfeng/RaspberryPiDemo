@@ -5,6 +5,7 @@ LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式
 
 import threading
 import time
+from functools import wraps
 from typing import List, Optional, Tuple, Union
 
 from canfd_lib import CANFD
@@ -25,6 +26,15 @@ from lhandprolib_wrapper import (
     LHandProLibError,
     PyLHandProLib,
 )
+
+
+def _synchronized_lifecycle(method):
+    @wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with self._lifecycle_lock:
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 class LHandProController:
@@ -49,8 +59,10 @@ class LHandProController:
 
         # RS485 相关属性
         self.serial_port = None
+        self._rs485_callback_lock = threading.RLock()
 
         # 通用属性
+        self._lifecycle_lock = threading.RLock()
         self.is_connected = False
         self.dof_total = 0
         self.dof_active = 0
@@ -94,17 +106,26 @@ class LHandProController:
 
     def _rs485_send_callback(self, data: bytes) -> bool:
         """RS485 发送回调函数"""
-        if self.serial_port and self.is_connected:
-            try:
-                return self.serial_port.write(data) > 0
-            except Exception as e:
-                print(f"RS485发送失败: {e}")
+        try:
+            with self._rs485_callback_lock:
+                if not self.is_connected:
+                    return False
+                serial_port = self.serial_port
+                if not serial_port:
+                    return False
+                return serial_port.write(data) > 0
+        except Exception as e:
+            print(f"RS485发送失败: {e}")
         return False
 
     def _rs485_receive_callback(self, data: bytes):
         """RS485 接收回调函数"""
-        if self.lhp and self.is_connected:
-            self.lhp.set_rs485_data_decode(data)
+        try:
+            with self._rs485_callback_lock:
+                if self.lhp and self.is_connected:
+                    self.lhp.set_rs485_data_decode(data)
+        except Exception as e:
+            print(f"RS485接收解析失败: {e}")
 
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
@@ -134,6 +155,18 @@ class LHandProController:
             if self.stop_flag and not self.stop_flag.is_set():
                 print(f"EtherCAT接收监控线程异常: {e}")
 
+    def _has_communication_resources(self) -> bool:
+        return any(
+            (
+                self.is_connected,
+                self.lhp is not None,
+                self.canfd is not None,
+                self.ec_master is not None,
+                self.serial_port is not None,
+            )
+        )
+
+    @_synchronized_lifecycle
     def connect(
         self,
         enable_motors: bool = True,
@@ -175,6 +208,10 @@ class LHandProController:
             bool: 连接是否成功
         """
         try:
+            if self._has_communication_resources():
+                print("检测到上一次连接资源，重新连接前先执行清理")
+                self.disconnect()
+
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
 
@@ -599,21 +636,17 @@ class LHandProController:
                     if self.ec_master is ec_master:
                         self.ec_master = None
         elif self.communication_mode == "RS485" and self.serial_port:
-            self.serial_port.close()
-            self.serial_port = None
+            # 先等待正在执行的收发回调结束；is_connected=False 会阻止新回调进入实际通信。
+            with self._rs485_callback_lock:
+                serial_port = self.serial_port
+            serial_port.close()
+            if self.serial_port is serial_port:
+                self.serial_port = None
 
+    @_synchronized_lifecycle
     def disconnect(self):
         """断开连接并清理资源"""
-        has_resources = any(
-            (
-                self.is_connected,
-                self.lhp is not None,
-                self.canfd is not None,
-                self.ec_master is not None,
-                self.serial_port is not None,
-            )
-        )
-        if not has_resources:
+        if not self._has_communication_resources():
             return
 
         print("正在断开连接...")
@@ -625,8 +658,15 @@ class LHandProController:
             if self.lhp:
                 self.lhp.close()
                 self.lhp = None
+        elif self.communication_mode == "RS485":
+            # RS485 工作线程可能执行接收解码，必须在线程退出后再关闭库句柄。
+            self.is_connected = False
+            self._cleanup_communication_resources()
+            if self.lhp:
+                self.lhp.close()
+                self.lhp = None
         else:
-            # 保持 CANFD/RS485 原有的关闭顺序。
+            # 保持 CANFD 原有的关闭顺序。
             if self.lhp:
                 self.lhp.close()
                 self.lhp = None

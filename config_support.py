@@ -267,6 +267,9 @@ def export_legacy_config(
             "MAIN_POWER_CYCLE_PORT": feature_flags.get(
                 "main_power_cycle_port", None
             ),
+            "MAIN_POWER_CYCLE_RS485_PORTS": feature_flags.get(
+                "main_power_cycle_rs485_ports", None
+            ),
             "MAIN_POWER_CYCLE_STOP_TIMEOUT": feature_flags.get(
                 "main_power_cycle_stop_timeout", 5.0
             ),

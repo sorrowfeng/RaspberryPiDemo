@@ -16,6 +16,7 @@ from config import (
     MAIN_POWER_CYCLE_OFF_SECONDS,
     MAIN_POWER_CYCLE_ON_SECONDS,
     MAIN_POWER_CYCLE_PORT,
+    MAIN_POWER_CYCLE_RS485_PORTS,
     MAIN_POWER_CYCLE_START_DELAY,
     MAIN_POWER_CYCLE_STOP_TIMEOUT,
 )
@@ -72,6 +73,15 @@ def parse_args():
         type=int,
         default=MAIN_POWER_CYCLE_BAUD_RATE,
         help=f"Serial baud rate. Default: {MAIN_POWER_CYCLE_BAUD_RATE}",
+    )
+    parser.add_argument(
+        "--rs485-ports",
+        nargs="+",
+        default=MAIN_POWER_CYCLE_RS485_PORTS,
+        help=(
+            "Fixed RS485 device ports for managed main.py processes. "
+            "When omitted, all non-power serial ports are used if their count matches launch-count."
+        ),
     )
     parser.add_argument(
         "--start-delay",
@@ -225,7 +235,7 @@ def open_power_serial(args):
     return serial_port
 
 
-def start_managed_main_processes(args):
+def stop_existing_managed_main_processes(args):
     logger.info("清理同通信模式下已存在的 main.py 进程: mode=%s", args.communication_mode)
     stop_result = stop_existing_main_processes(
         communication_mode=args.communication_mode,
@@ -234,13 +244,64 @@ def start_managed_main_processes(args):
     if stop_result != 0:
         raise RuntimeError("同通信模式下已有 main.py 进程未能退出")
 
+
+def resolve_rs485_device_ports(serial_port: SerialPort, args):
+    if args.communication_mode != "RS485":
+        return None
+
+    power_port = serial_port.port_name
+    if not power_port:
+        raise RuntimeError("无法确定主电源控制串口，不能分配 RS485 设备端口")
+
+    available_ports = serial_port.scan_available_ports(excluded_ports=[power_port])
+    available_names = {
+        serial_port.normalize_port_name(port) for port in available_ports
+    }
+    configured_ports = list(args.rs485_ports or [])
+
+    if configured_ports:
+        selected_ports = []
+        selected_names = set()
+        power_name = serial_port.normalize_port_name(power_port)
+        for port in configured_ports:
+            normalized = serial_port.normalize_port_name(port)
+            if normalized == power_name:
+                raise RuntimeError(f"RS485 设备端口不能与主电源串口相同: {port}")
+            if normalized in selected_names:
+                raise RuntimeError(f"RS485 设备端口重复: {port}")
+            if normalized not in available_names:
+                raise RuntimeError(f"配置的 RS485 设备端口当前不可用: {port}")
+            selected_names.add(normalized)
+            selected_ports.append(port)
+    else:
+        selected_ports = available_ports
+
+    if len(selected_ports) != args.launch_count:
+        raise RuntimeError(
+            "RS485 设备串口数量必须与启动数量一致: "
+            f"power_port={power_port}, device_ports={selected_ports}, "
+            f"launch_count={args.launch_count}；请配置 main_power_cycle_rs485_ports"
+        )
+
+    for index, port in enumerate(selected_ports):
+        logger.info("RS485 固定端口映射: device_index=%s -> %s", index, port)
+    return selected_ports
+
+
+def start_managed_main_processes(args, serial_port: SerialPort, *, existing_stopped=False):
+    if not existing_stopped:
+        stop_existing_managed_main_processes(args)
+
+    rs485_port_names = resolve_rs485_device_ports(serial_port, args)
     logger.info("启动长驻 main.py 进程: mode=%s, count=%s", args.communication_mode, args.launch_count)
     processes = start_main_processes(
         args.communication_mode,
         args.launch_count,
+        prepare=False,
         new_process_group=True,
         stop_timeout=args.stop_timeout,
         managed_control=True,
+        rs485_port_names=rs485_port_names,
     )
     if not wait_for_main_processes(
         args.communication_mode,
@@ -310,7 +371,13 @@ def stop_motion_then_power_off(
     return True
 
 
-def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStartCounter) -> int:
+def run_power_cycle_loop(
+    serial_port: SerialPort,
+    args,
+    start_counter: MainStartCounter,
+    *,
+    existing_stopped: bool = False,
+) -> int:
     logger.info(
         "开始电源通断托管循环: "
         "preset=%s, mode=%s, count=%s, start_delay=%ss, 运动窗口=%ss, 断电等待=%ss, "
@@ -324,7 +391,11 @@ def run_power_cycle_loop(serial_port: SerialPort, args, start_counter: MainStart
         args.control_timeout,
         args.stop_timeout,
     )
-    processes = start_managed_main_processes(args)
+    processes = start_managed_main_processes(
+        args,
+        serial_port,
+        existing_stopped=existing_stopped,
+    )
 
     try:
         cycle_index = 1
@@ -423,32 +494,46 @@ def main() -> int:
     setup_logging(app_name="main_power_cycle")
     logger.info(
         "main_power_cycle.py 启动参数: preset=%s, communication_mode=%s, "
-        "launch_count=%s, port=%s, baud_rate=%s",
+        "launch_count=%s, port=%s, baud_rate=%s, rs485_ports=%s",
         ACTIVE_PRESET,
         args.communication_mode,
         args.launch_count,
         args.port,
         args.baud_rate,
+        args.rs485_ports,
     )
     if CONFIG_LOAD_ERROR is not None:
         logger.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
     serial_port = None
     start_counter = MainStartCounter()
-    start_counter.setup()
 
     try:
+        # 必须先释放旧 RS485 设备端口，再统一配置适配器和打开主电源串口。
+        stop_existing_managed_main_processes(args)
+        start_counter.setup()
         logger.info("准备主电源控制串口，先执行 RS485 模式配置脚本")
-        setup_rs485_mode()
+        setup_result = setup_rs485_mode()
+        if args.communication_mode == "RS485" and setup_result != 0:
+            raise RuntimeError(
+                f"RS485 模式配置失败，不能启动设备上下电测试: returncode={setup_result}"
+            )
         serial_port = open_power_serial(args)
-        return run_power_cycle_loop(serial_port, args, start_counter)
+        return run_power_cycle_loop(
+            serial_port,
+            args,
+            start_counter,
+            existing_stopped=True,
+        )
     except Exception as exc:
         logger.exception("main_power_cycle.py 运行失败: %s", exc)
         return 1
     finally:
-        if serial_port:
-            serial_port.close()
-            logger.info("主电源串口已关闭")
-        start_counter.cleanup()
+        try:
+            if serial_port:
+                serial_port.close()
+                logger.info("主电源串口已关闭")
+        finally:
+            start_counter.cleanup()
 
 
 if __name__ == "__main__":

@@ -68,6 +68,7 @@ def build_main_command(
     launch_count: int,
     index: int,
     managed_control: bool = False,
+    rs485_port_names=None,
 ):
     cmd = python_cmd + [
         "main.py",
@@ -75,6 +76,8 @@ def build_main_command(
     ]
     if launch_count > 1:
         cmd.append(f"--device-index={index}")
+    if communication_mode == "RS485" and rs485_port_names:
+        cmd.append(f"--rs485-port={rs485_port_names[index]}")
     if managed_control:
         cmd.append("--managed-by-power-cycle")
     return cmd
@@ -114,7 +117,18 @@ def start_main_processes(
     stop_timeout: float = DEFAULT_STOP_TIMEOUT,
     startup_check_delay: float = 0.2,
     managed_control: bool = False,
+    rs485_port_names=None,
 ):
+    if (
+        communication_mode == "RS485"
+        and rs485_port_names is not None
+        and len(rs485_port_names) != launch_count
+    ):
+        raise ValueError(
+            "RS485 端口数量与启动数量不一致: "
+            f"ports={len(rs485_port_names)}, launch_count={launch_count}"
+        )
+
     if prepare:
         prepare_bus(communication_mode)
 
@@ -129,6 +143,7 @@ def start_main_processes(
                 launch_count,
                 index,
                 managed_control=managed_control,
+                rs485_port_names=rs485_port_names,
             )
             logger.debug("启动 main.py 命令: %s", cmd)
             process = start_process(cmd, new_process_group=new_process_group)
