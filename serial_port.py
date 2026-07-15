@@ -10,6 +10,7 @@ Python 串口封装类
 """
 
 import glob
+import logging
 import os
 import queue
 import sys
@@ -20,6 +21,16 @@ from typing import Optional, List, Callable
 
 # 发送后等待接收响应的窗口时间（ms），可按设备响应时间调整
 SEND_TIMEOUT_MS = 50
+logger = logging.getLogger(__name__)
+
+
+class _WriteRequest:
+    """Tracks completion for callers that must confirm bytes reached the OS driver."""
+
+    def __init__(self, data: bytes):
+        self.data = data
+        self.completed = threading.Event()
+        self.error = None
 
 
 class SerialPort:
@@ -61,7 +72,7 @@ class SerialPort:
                         continue
                 ports.append(device)
         except Exception as e:
-            print(f"扫描串口失败: {e}")
+            logger.exception("扫描串口失败: %s", e)
 
         # ttyXRUSB 设备使用私有驱动，不在 pyserial 的 comports() 列表中
         # 直接用 glob 补充扫描
@@ -87,7 +98,8 @@ class SerialPort:
 
     def open(self, port_name: str, baud_rate: int = 500000,
              bytesize: int = 8, parity: str = 'N',
-             stopbits: int = 1, timeout: float = 0.001) -> bool:
+             stopbits: int = 1, timeout: float = 0.001,
+             write_timeout: float = 1.0) -> bool:
         """打开串口
 
         Args:
@@ -97,6 +109,7 @@ class SerialPort:
             parity: 校验位，默认 'N' (无校验)
             stopbits: 停止位，默认 1
             timeout: 串口读取超时（秒），设小值使工作线程可快速轮询
+            write_timeout: 底层串口写入超时（秒）
 
         Returns:
             是否成功打开
@@ -111,16 +124,21 @@ class SerialPort:
                 bytesize=bytesize,
                 parity=parity,
                 stopbits=stopbits,
-                timeout=timeout
+                timeout=timeout,
+                write_timeout=write_timeout,
             )
             self.is_open = True
             self.port_name = port_name
             self._running = True
-            self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                name=f"SerialPort-{os.path.basename(port_name)}",
+                daemon=True,
+            )
             self._worker_thread.start()
             return True
         except Exception as e:
-            print(f"打开串口失败: {e}")
+            logger.exception("打开串口失败: port=%s, error=%s", port_name, e)
             return False
 
     def close(self):
@@ -148,7 +166,10 @@ class SerialPort:
 
         while True:
             try:
-                self._send_queue.get_nowait()
+                item = self._send_queue.get_nowait()
+                if isinstance(item, _WriteRequest) and not item.completed.is_set():
+                    item.error = RuntimeError("串口已关闭，写入未执行")
+                    item.completed.set()
             except queue.Empty:
                 break
 
@@ -161,9 +182,35 @@ class SerialPort:
         Returns:
             入队字节数（实际发送由工作线程完成）
         """
-        if not self.is_open:
+        worker_thread = self._worker_thread
+        if (
+            not self.is_open
+            or not self._running
+            or not worker_thread
+            or not worker_thread.is_alive()
+        ):
             return 0
         self._send_queue.put(data)
+        return len(data)
+
+    def write_and_wait(self, data: bytes, timeout: float = 1.0) -> int:
+        """Queue data and wait until the worker confirms write() and flush()."""
+        worker_thread = self._worker_thread
+        if (
+            not self.is_open
+            or not self.serial
+            or not self._running
+            or not worker_thread
+            or not worker_thread.is_alive()
+        ):
+            return 0
+
+        request = _WriteRequest(data)
+        self._send_queue.put(request)
+        if not request.completed.wait(timeout=timeout):
+            raise TimeoutError("等待串口写入完成超时")
+        if request.error is not None:
+            raise RuntimeError(f"串口写入失败: {request.error}") from request.error
         return len(data)
 
     def set_read_callback(self, callback: Callable[[bytes], None]):
@@ -189,24 +236,40 @@ class SerialPort:
         while self._running:
             try:
                 # 阻塞等待队列，最长 1ms，保持退出响应
-                data = self._send_queue.get(timeout=0.001)
+                item = self._send_queue.get(timeout=0.001)
             except queue.Empty:
                 continue
 
             # 哨兵：关闭信号
-            if data is None:
+            if item is None:
                 break
 
+            write_request = item if isinstance(item, _WriteRequest) else None
+            data = write_request.data if write_request else item
+
             if not self.is_open or not self.serial:
+                if write_request:
+                    write_request.error = RuntimeError("串口未打开")
+                    write_request.completed.set()
                 continue
 
             # 1. 发送
             try:
-                self.serial.write(data)
+                written = self.serial.write(data)
+                if written != len(data):
+                    raise RuntimeError(
+                        f"串口写入长度不完整: expected={len(data)}, actual={written}"
+                    )
                 self.serial.flush()
             except Exception as e:
-                print(f"串口发送失败: {e}")
+                logger.exception("串口发送失败: port=%s, error=%s", self.port_name, e)
+                if write_request:
+                    write_request.error = e
+                    write_request.completed.set()
                 continue
+
+            if write_request:
+                write_request.completed.set()
 
             # 2. 接收窗口：持续 SEND_TIMEOUT_MS 读取响应（处理粘包）
             receive_buffer = bytearray()
@@ -221,7 +284,7 @@ class SerialPort:
                     if chunk:
                         receive_buffer.extend(chunk)
                 except Exception as e:
-                    print(f"串口读取失败: {e}")
+                    logger.exception("串口读取失败: port=%s, error=%s", self.port_name, e)
                     break
 
             # 3. 回调完整响应
@@ -229,7 +292,7 @@ class SerialPort:
                 try:
                     self.read_callback(bytes(receive_buffer))
                 except Exception as e:
-                    print(f"读取回调执行失败: {e}")
+                    logger.exception("串口读取回调执行失败: port=%s, error=%s", self.port_name, e)
 
         # 串口句柄由 close() 在线程确认退出后统一关闭。
 

@@ -78,8 +78,8 @@
 相关参数：
 
 - `main_power_cycle_start_delay`
-- `main_power_cycle_on_seconds`
-- `main_power_cycle_off_seconds`
+- `main_power_cycle_on_seconds`（从上电指令到断电指令的目标时长）
+- `main_power_cycle_off_seconds`（从断电指令到下一次上电指令的目标时长）
 - `main_power_cycle_baud_rate`
 - `main_power_cycle_port`
 - `main_power_cycle_rs485_ports`（仅 RS485 设备通讯，可选的固定四串口列表）
@@ -89,8 +89,8 @@
 当前主电源通断测试默认时间：
 
 - 上电后等待 `main_power_cycle_start_delay=2.0s`
-- 首个设备开始运动后，运动窗口持续 `main_power_cycle_on_seconds=10.0s`
-- 断电后等待 `main_power_cycle_off_seconds=1.0s`
+- 从发送上电指令起，物理上电窗口持续 `main_power_cycle_on_seconds=10.0s`
+- 从发送断电指令起，物理断电窗口持续 `main_power_cycle_off_seconds=1.0s`
 
 如果开机自启且现场可能有多个串口，建议把 `main_power_cycle_port` 固定成实际端口，例如：
 
@@ -156,11 +156,11 @@ launch.py
            按 device index 顺序发送 start_cycle 控制命令，不同 main.py 间隔 1s
            main.py 内部连接、回零并开始循环运动
            任意一个 main.py 发出 home_started 进度后，GPIO12 输出一次计数脉冲
-           未接设备的 start_cycle 失败只记录，不中断本轮
-           任意一个 main.py 发出 motion_started 进度后，运动窗口持续 main_power_cycle_on_seconds
-           发送 stop_cycle 控制命令，main.py 内部停止运动并断开设备
-           stop_cycle 成功后发送断电
-           等待 main_power_cycle_off_seconds
+           未接设备的 start_cycle 失败只记录，不中断电源循环；下一轮上电后重新连接
+           上电总时长达到 main_power_cycle_on_seconds 后立即发送断电
+           断电后发送 stop_cycle，main.py 内部停止运动并清理通信资源
+           清理必须在 main_power_cycle_off_seconds 窗口内完成，否则保持断电并退出
+           到达断电窗口截止时间后进入下一轮上电
 ```
 
 上电指令：
@@ -194,27 +194,45 @@ GPIO12
 日志目录：
 
 ```text
-logs/
+logs/<run_id>/
 ```
 
-日志文件名包含入口和 pid，例如：
+`launch.py` 每次启动会创建一个 `run_id` 批次目录，`main_power_cycle.py` 和全部
+`main.py` 子进程继承同一个批次。直接执行任一入口时也会自动创建独立批次。
+
+批次内文件名包含入口和 pid，例如：
 
 ```text
-launch_YYYYMMDD_HHMMSS_pid1234.log
-main_CANFD_device_0_YYYYMMDD_HHMMSS_pid1235.log
-main_power_cycle_YYYYMMDD_HHMMSS_pid1236.log
+logs/20260715_173000_pid1234/session.json
+logs/latest.txt
+logs/20260715_173000_pid1234/launch_pid1234.log
+logs/20260715_173000_pid1234/main_power_cycle_pid1235.log
+logs/20260715_173000_pid1234/main_CANFD_device_0_pid1236.log
 ```
 
 日志格式包含：
 
 - 时间，含毫秒
 - level
+- run_id
+- communication mode
+- device
+- power cycle
+- control command id
 - pid
 - 线程名
 - 模块和行号
 - 消息
 
-`setup_logging()` 会把 `stdout/stderr` tee 到日志文件，所以旧代码中的 `print()` 输出也会进入日志。
+`setup_logging()` 会把 `stdout/stderr` 转成带完整上下文的日志记录，所以旧代码中的
+`print()` 输出也会进入对应设备日志。日志按每文件 20 MiB 滚动，每个进程保留当前文件
+和 5 个备份；默认保留最近 30 个完整运行批次。父进程发送控制命令时会记录对应
+`main.py` 的日志绝对路径，连接失败时应同时查看 `main_power_cycle` 和该设备日志。
+`logs/latest.txt` 保存最近一次启动批次的绝对路径。
+
+每个正常完成或可恢复失败的上下电轮次都会输出一条 `POWER_CYCLE_SUMMARY`，包含连接、
+回零、运动、实际通断时间及下一步动作。RS485 驱动准备脚本的 stdout/stderr 以
+`RS485_SETUP` 前缀进入父进程日志。
 
 ## RS485 串口准备脚本
 
@@ -275,7 +293,7 @@ find . \
 
 是否进入普通启动还是主电源通断测试，由当前配置决定。
 
-注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。确认 `stop_cycle` 完成后，才会发送断电指令。systemd 服务仍建议配置足够的 `TimeoutStopSec`，避免清理尚未完成就被系统强杀。
+注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。为保证物理通断时间，脚本会在上电窗口截止时先发送断电，再要求 `stop_cycle` 在断电窗口内完成通信清理；清理超时会保持断电并退出，不会延迟后继续下一轮。systemd 服务仍建议配置足够的 `TimeoutStopSec`，避免清理尚未完成就被系统强杀。
 
 ## 绿联 USB-to-RS485 适配器识别问题
 

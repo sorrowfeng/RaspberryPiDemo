@@ -20,6 +20,13 @@ def build_python_cmd():
         return ["python3"] if sys.executable.endswith("python3") else ["python"]
     if hasattr(os, "geteuid") and os.geteuid() == 0:
         return ["python3"]
+    preserved_log_env = [
+        f"{name}={os.environ[name]}"
+        for name in ("RPD_LOG_RUN_ID", "RPD_LOG_SESSION_DIR")
+        if os.environ.get(name)
+    ]
+    if preserved_log_env:
+        return ["sudo", "env", *preserved_log_env, "python3"]
     return ["sudo", "python3"]
 
 
@@ -29,7 +36,14 @@ def setup_rs485_mode() -> int:
     result = subprocess.run(
         cmd,
         check=False,
+        capture_output=True,
+        text=True,
+        errors="replace",
     )
+    for line in (result.stdout or "").splitlines():
+        logger.info("RS485_SETUP stdout: %s", line)
+    for line in (result.stderr or "").splitlines():
+        logger.warning("RS485_SETUP stderr: %s", line)
     if result.returncode == 0:
         logger.info("USB-to-RS485 模式配置完成: returncode=%s", result.returncode)
     else:

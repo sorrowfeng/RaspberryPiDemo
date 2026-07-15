@@ -2,10 +2,13 @@
 EtherCAT 主站封装库
 """
 
+import logging
 import threading
 import time
 import pysoem
 from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 class EthercatMaster:
     """EtherCAT 主站封装类"""
@@ -26,7 +29,7 @@ class EthercatMaster:
         """扫描可用网口，过滤虚拟/无线/回环接口，返回物理网卡设备名列表"""
         adapters = pysoem.find_adapters()
         if not adapters:
-            print("⚠️ 未检测到任何可用网口！请检查 Npcap 是否安装并重启。")
+            logger.warning("未检测到任何可用网口；请检查网卡权限、驱动或 Npcap")
             return []
 
         # 过滤名单：这些名字中包含的关键词将被排除
@@ -80,7 +83,7 @@ class EthercatMaster:
         
         # 如果所有接口都被过滤掉了
         if not filtered_adapters:
-            print("  ⚠️ 未找到可用的物理网卡")
+            logger.warning("未找到可用的物理网卡")
             # 可选：显示被过滤的接口用于调试
             print("  被过滤的接口:")
             for adapter in adapters:
@@ -104,8 +107,15 @@ class EthercatMaster:
                 pysoem.SAFEOP_STATE: "SAFEOP",
                 pysoem.OP_STATE: "OP"
             }.get(slave.state, f"UNKNOWN({slave.state})")
-            print(f"  Slave {i} ({slave.name}): State={state_str}, AL Status={hex(slave.al_status)} "
-                  f"({pysoem.al_status_code_to_string(slave.al_status)})")
+            logger.error(
+                "EtherCAT 从站状态异常: slave=%s, name=%s, state=%s, "
+                "al_status=%s, al_message=%s",
+                i,
+                slave.name,
+                state_str,
+                hex(slave.al_status),
+                pysoem.al_status_code_to_string(slave.al_status),
+            )
 
     def init(self, channel_index: int, ifaces: List[str]) -> bool:
         """初始化 EtherCAT 主站和从站（更贴近SOEM流程）"""
@@ -118,7 +128,10 @@ class EthercatMaster:
 
             # 初始化从站配置
             if self.master.config_init() <= 0:
-                print("❌ 未发现任何 EtherCAT 从站设备！")
+                logger.error(
+                    "未发现任何 EtherCAT 从站设备: interface=%s",
+                    self.ifname,
+                )
                 return False
 
             self.slaves = self.master.slaves
@@ -138,7 +151,7 @@ class EthercatMaster:
             print("⏳ 等待从站进入 SAFEOP 状态...")
             if self.master.state_check(pysoem.SAFEOP_STATE, 50000) != pysoem.SAFEOP_STATE:
                 self._print_slave_states()
-                print("❌ 未能进入 SAFEOP_STATE")
+                logger.error("EtherCAT 未能进入 SAFEOP_STATE: interface=%s", self.ifname)
                 return False
 
             # 先发一次 processdata
@@ -160,7 +173,7 @@ class EthercatMaster:
 
             if self.master.state_check(pysoem.OP_STATE, 5000) != pysoem.OP_STATE:
                 self._print_slave_states()
-                print("❌ 未能进入 OP_STATE")
+                logger.error("EtherCAT 未能进入 OP_STATE: interface=%s", self.ifname)
                 return False
 
             print("✅ 成功进入 OP 状态")
@@ -180,7 +193,11 @@ class EthercatMaster:
             return True
 
         except Exception as e:
-            print(f"❌ 初始化失败: {e}")
+            logger.exception(
+                "EtherCAT 初始化失败: interface=%s, error=%s",
+                self.ifname,
+                e,
+            )
             return False
         finally:
             if not initialized:
@@ -209,7 +226,12 @@ class EthercatMaster:
                 self.master.write_state()
                 time.sleep(0.1)
             except Exception as e:
-                print(f"EtherCAT 主站切换到 INIT 状态失败: {e}")
+                logger.warning(
+                    "EtherCAT 主站切换到 INIT 状态失败: interface=%s, error=%s",
+                    self.ifname,
+                    e,
+                    exc_info=True,
+                )
 
             try:
                 self.master.close()
@@ -227,7 +249,11 @@ class EthercatMaster:
         if self.running and self.thread and self.thread.is_alive():
             return
         self.running = True
-        self.thread = threading.Thread(target=self._process_io, daemon=True)
+        self.thread = threading.Thread(
+            target=self._process_io,
+            name="EtherCAT-PDO",
+            daemon=True,
+        )
         self.thread.start()
 
     def _process_io(self):
@@ -239,21 +265,31 @@ class EthercatMaster:
                 time.sleep(0.001)  # 1ms
         except Exception as e:
             if self.running:
-                print(f"❌ EtherCAT PDO 通讯线程异常: {e}")
+                logger.exception("EtherCAT PDO 通讯线程异常: %s", e)
         finally:
             self.running = False
 
     def setOutputs(self, data: bytes, size: int) -> bool:
         """设置输出数据"""
         if len(data) != self.output_size:
-            print(f"❌ 输出数据长度不匹配: 期望 {self.output_size}, 得到 {len(data)}")
+            logger.error(
+                "EtherCAT 输出数据长度不匹配: expected=%s, actual=%s",
+                self.output_size,
+                len(data),
+            )
             return False
 
         offset = 0
         for slave in self.slaves:
             slave_out_len = len(slave.output)
             if offset + slave_out_len > len(data):
-                print(f"❌ 数据偏移越界: slave {slave.name}")
+                logger.error(
+                    "EtherCAT 输出数据偏移越界: slave=%s, offset=%s, slave_size=%s, data_size=%s",
+                    slave.name,
+                    offset,
+                    slave_out_len,
+                    len(data),
+                )
                 return False
             slave.output = data[offset:offset + slave_out_len]
             offset += slave_out_len
@@ -263,7 +299,11 @@ class EthercatMaster:
     def getInputs(self, size: int) -> Optional[bytes]:
         """获取输入数据"""
         if size != self.input_size:
-            print(f"❌ 输入大小不匹配: 期望 {self.input_size}, 得到 {size}")
+            logger.error(
+                "EtherCAT 输入数据长度不匹配: expected=%s, actual=%s",
+                self.input_size,
+                size,
+            )
             return None
 
         inputs = bytearray()

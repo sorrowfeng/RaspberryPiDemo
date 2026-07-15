@@ -11,6 +11,7 @@ from main_runtime_control import (
     emit_control_progress,
     read_control_command,
 )
+from log import logging_context, set_process_logging_context
 
 try:
     import RPi.GPIO as GPIO
@@ -131,25 +132,34 @@ class MotionController:
         if not command:
             return
 
-        logging.info(
-            "收到 main.py 控制命令: action=%s, id=%s",
-            command.get("action"),
-            command.get("id"),
+        command_log_context = command.get("log_context") or {}
+        set_process_logging_context(
+            cycle=command_log_context.get("cycle"),
+            command_id=command.get("id"),
         )
-        try:
-            ok, message = self._handle_control_command(command)
-        except Exception as exc:
-            logging.exception("执行 main.py 控制命令异常: %s", exc)
-            ok = False
-            message = str(exc)
+        with logging_context(
+            cycle=command_log_context.get("cycle"),
+            command_id=command.get("id"),
+        ):
+            logging.info(
+                "收到 main.py 控制命令: action=%s, id=%s",
+                command.get("action"),
+                command.get("id"),
+            )
+            try:
+                ok, message = self._handle_control_command(command)
+            except Exception as exc:
+                logging.exception("执行 main.py 控制命令异常: %s", exc)
+                ok = False
+                message = str(exc)
 
-        complete_control_command(
-            self.session.controller.communication_mode,
-            self.session.device_index,
-            command,
-            ok,
-            message,
-        )
+            complete_control_command(
+                self.session.controller.communication_mode,
+                self.session.device_index,
+                command,
+                ok,
+                message,
+            )
 
     def setup_gpio(self):
         if not self.session.enable_gpio or not self.session.gpio or GPIO is None:

@@ -58,7 +58,11 @@ def main() -> int:
     communication_mode = args.communication_mode or DEFAULT_COMMUNICATION_MODE
     launch_count = args.launch_count if args.launch_count is not None else DEFAULT_LAUNCH_COUNT
 
-    setup_logging(app_name="launch")
+    setup_logging(
+        app_name="launch",
+        communication_mode=communication_mode,
+        device_index="all",
+    )
     logger.info(
         "launch.py 启动参数: preset=%s, communication_mode=%s, launch_count=%s, "
         "enable_main_power_cycle=%s",

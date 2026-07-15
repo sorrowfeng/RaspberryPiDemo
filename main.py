@@ -4,6 +4,7 @@ Program entry for RaspberryPiDemo.
 
 import argparse
 import logging
+import os
 import sys
 
 from active_config import ACTIVE_PRESET
@@ -20,8 +21,11 @@ from main_runtime_control import (
 )
 from motion_system import MotionController
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 
 def main():
+    os.chdir(BASE_DIR)
     parser = argparse.ArgumentParser(description="LHandPro GPIO 控制程序")
     parser.add_argument(
         "--device-index",
@@ -101,7 +105,11 @@ def main():
     if args.start_cycle_existing or args.stop_cycle_existing:
         action = "start_cycle" if args.start_cycle_existing else "stop_cycle"
         communication_mode = args.communication_mode or DEFAULT_COMMUNICATION_MODE
-        setup_logging(app_name=f"main_control_{action}_{communication_mode}")
+        setup_logging(
+            app_name=f"main_control_{action}_{communication_mode}",
+            communication_mode=communication_mode,
+            device_index="all" if args.device_index is None else args.device_index,
+        )
         logging.info(
             "main.py 控制命令: preset=%s, action=%s, communication_mode=%s, "
             "device_index=%s, timeout=%s",
@@ -120,7 +128,11 @@ def main():
 
     if args.stop_existing:
         stop_label = args.communication_mode or "all"
-        setup_logging(app_name=f"main_stop_existing_{stop_label}")
+        setup_logging(
+            app_name=f"main_stop_existing_{stop_label}",
+            communication_mode=args.communication_mode or "all",
+            device_index="all" if args.device_index is None else args.device_index,
+        )
         logging.info(
             "main.py 停止命令: preset=%s, communication_mode=%s, device_index=%s, timeout=%s",
             ACTIVE_PRESET,
@@ -158,7 +170,11 @@ def main():
                 print("请输入数字")
 
     device_label = "auto" if args.device_index is None else str(args.device_index)
-    setup_logging(app_name=f"main_{args.communication_mode}_device_{device_label}")
+    setup_logging(
+        app_name=f"main_{args.communication_mode}_device_{device_label}",
+        communication_mode=args.communication_mode,
+        device_index=device_label,
+    )
     logging.info(
         "main.py 启动参数: preset=%s, communication_mode=%s, device_index=%s, "
         "rs485_port=%s, enable_gpio=%s, managed_control=%s",

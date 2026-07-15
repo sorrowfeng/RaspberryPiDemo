@@ -1,6 +1,10 @@
+import json
+import logging
 import socket
 import threading
-import json
+
+
+logger = logging.getLogger(__name__)
 
 
 class Parameter:
@@ -52,7 +56,7 @@ class UDPReceiver:
         启动UDP接收器
         """
         if self.running:
-            print("UDP接收器已经在运行中")
+            logger.info("UDP 接收器已经在运行中")
             return
 
         try:
@@ -62,13 +66,21 @@ class UDPReceiver:
             self.running = True
             
             # 启动接收线程
-            self.thread = threading.Thread(target=self._receive_loop)
+            self.thread = threading.Thread(
+                target=self._receive_loop,
+                name="Glove-UDP-Receive",
+            )
             self.thread.daemon = True
             self.thread.start()
-            print(f"UDP接收器已启动，监听 {self.host}:{self.port}")
+            logger.info("UDP 接收器已启动: host=%s, port=%s", self.host, self.port)
             
         except Exception as e:
-            print(f"启动UDP接收器失败: {e}")
+            logger.exception(
+                "启动 UDP 接收器失败: host=%s, port=%s, error=%s",
+                self.host,
+                self.port,
+                e,
+            )
             self.running = False
             if self.socket:
                 self.socket.close()
@@ -94,7 +106,7 @@ class UDPReceiver:
             self.socket.close()
             self.socket = None
             
-        print("UDP接收器已停止")
+        logger.info("UDP 接收器已停止: host=%s, port=%s", self.host, self.port)
 
     def _receive_loop(self):
         """
@@ -110,7 +122,7 @@ class UDPReceiver:
                         self.callback(glove_data_list)
             except Exception as e:
                 if self.running:  # 只有在接收器运行时才打印错误
-                    print(f"UDP接收错误: {e}")
+                    logger.exception("UDP 接收错误: %s", e)
 
     def _parse_json(self, json_buffer):
         """
@@ -168,9 +180,9 @@ class UDPReceiver:
                 simple_glove_data_list.append(simple_data)
                 
         except json.JSONDecodeError as e:
-            print(f"JSON解析错误: {e}")
+            logger.warning("手套 UDP JSON 解析错误: %s", e)
         except Exception as e:
-            print(f"解析数据错误: {e}")
+            logger.exception("手套 UDP 数据解析异常: %s", e)
         
         return simple_glove_data_list
 

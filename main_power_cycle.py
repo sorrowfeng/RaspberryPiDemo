@@ -4,6 +4,7 @@
 import argparse
 import logging
 import os
+import signal
 import time
 
 from active_config import ACTIVE_PRESET
@@ -21,7 +22,7 @@ from config import (
     MAIN_POWER_CYCLE_STOP_TIMEOUT,
 )
 from gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
-from log import setup_logging
+from log import set_process_logging_context, setup_logging
 from main_lifecycle import (
     setup_rs485_mode,
     start_main_processes,
@@ -39,9 +40,20 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
 SEND_DRAIN_SECONDS = 0.1
+POWER_COMMAND_WRITE_TIMEOUT_SECONDS = 2.0
 MAIN_START_COUNT_PULSE_SECONDS = 0.5
 MANAGED_START_COMMAND_SPACING_SECONDS = 1.0
 logger = logging.getLogger(__name__)
+
+
+def _raise_keyboard_interrupt(_signum, _frame):
+    """Route service termination through the same power-off path as Ctrl+C."""
+    raise KeyboardInterrupt
+
+
+def install_signal_handlers() -> None:
+    if hasattr(signal, "SIGTERM"):
+        signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
 
 
 def parse_args():
@@ -87,19 +99,19 @@ def parse_args():
         "--start-delay",
         type=float,
         default=MAIN_POWER_CYCLE_START_DELAY,
-        help="Delay after power-on before requesting managed main.py motion start.",
+        help="Delay measured from the power-on command before requesting managed motion start.",
     )
     parser.add_argument(
         "--on-seconds",
         type=float,
         default=MAIN_POWER_CYCLE_ON_SECONDS,
-        help="Motion window seconds after the first managed main.py starts motion.",
+        help="Power-on duration measured from the power-on command to the power-off command.",
     )
     parser.add_argument(
         "--off-seconds",
         type=float,
         default=MAIN_POWER_CYCLE_OFF_SECONDS,
-        help="Power-off duration for each cycle.",
+        help="Power-off duration measured from the power-off command to the next power-on command.",
     )
     parser.add_argument(
         "--stop-timeout",
@@ -147,21 +159,64 @@ def select_port(serial_port: SerialPort) -> str:
         logger.warning("串口编号超出范围: %s", choice)
 
 
-def send_command(serial_port: SerialPort, command: bytes, label: str) -> None:
-    written = serial_port.write(command)
+def send_command(serial_port: SerialPort, command: bytes, label: str) -> float:
+    written = serial_port.write_and_wait(
+        command,
+        timeout=POWER_COMMAND_WRITE_TIMEOUT_SECONDS,
+    )
     if written != len(command):
         raise RuntimeError(f"{label} 指令发送失败")
+    queued_at = time.monotonic()
     logger.info("%s 指令已发送: %s", label, command.hex(" ").upper())
     time.sleep(SEND_DRAIN_SECONDS)
+    return queued_at
 
 
-def sleep_with_interrupt(seconds: float) -> None:
-    deadline = time.monotonic() + seconds
+def sleep_until(deadline: float) -> None:
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return
         time.sleep(min(remaining, 0.5))
+
+
+def sleep_with_interrupt(seconds: float) -> None:
+    sleep_until(time.monotonic() + seconds)
+
+
+def log_power_cycle_summary(
+    *,
+    result: str,
+    managed_start: str,
+    home_started: bool,
+    motion_started: bool,
+    on_target: float,
+    on_actual=None,
+    off_target: float,
+    off_wait_actual=None,
+    next_action: str,
+    level=logging.INFO,
+) -> None:
+    def seconds(value):
+        return "-" if value is None else f"{value:.3f}"
+
+    on_drift = None if on_actual is None else on_actual - on_target
+    logger.log(
+        level,
+        "POWER_CYCLE_SUMMARY result=%s managed_start=%s home_started=%s "
+        "motion_started=%s on_target_s=%.3f on_actual_s=%s on_drift_s=%s "
+        "off_target_s=%.3f off_wait_actual_s=%s next_action=%s",
+        result,
+        managed_start,
+        str(bool(home_started)).lower(),
+        str(bool(motion_started)).lower(),
+        on_target,
+        seconds(on_actual),
+        seconds(on_drift),
+        off_target,
+        seconds(off_wait_actual),
+        next_action,
+    )
 
 
 class MainStartCounter:
@@ -313,10 +368,16 @@ def start_managed_main_processes(args, serial_port: SerialPort, *, existing_stop
     return processes
 
 
-def request_managed_motion_start(args, cycle_label: str, on_progress=None) -> bool:
+def request_managed_motion_start(
+    args,
+    cycle_label: str,
+    on_progress=None,
+    *,
+    absolute_deadline=None,
+) -> bool:
     logger.info(
         "%s: 请求长驻 main.py 按设备顺序执行连接、回零并开始循环运动；"
-        "不同 main.py 间隔 %.3fs，未接设备失败将忽略，至少需要 1 个设备开始运动",
+        "不同 main.py 间隔 %.3fs，未接设备失败将忽略；本轮全部失败时下一轮继续重试",
         cycle_label,
         MANAGED_START_COMMAND_SPACING_SECONDS,
     )
@@ -328,47 +389,95 @@ def request_managed_motion_start(args, cycle_label: str, on_progress=None) -> bo
         on_progress=on_progress,
         min_successes=1,
         command_spacing_seconds=MANAGED_START_COMMAND_SPACING_SECONDS,
+        absolute_deadline=absolute_deadline,
     )
 
 
-def request_managed_motion_stop(args, cycle_label: str) -> bool:
-    logger.info("%s: 请求长驻 main.py 停止运动并断开连接", cycle_label)
+def request_managed_motion_stop(args, cycle_label: str, *, absolute_deadline=None) -> bool:
+    logger.info("%s: 请求长驻 main.py 停止软件运动状态并清理通信资源", cycle_label)
     return request_existing_main_action(
         "stop_cycle",
         args.communication_mode,
         timeout=args.control_timeout,
+        absolute_deadline=absolute_deadline,
     )
 
 
-def stop_motion_then_power_off(
+def power_off_then_stop_motion(
     serial_port: SerialPort,
     processes,
     args,
     cycle_label: str,
     *,
     terminate_processes: bool = False,
-) -> bool:
-    command_stopped = request_managed_motion_stop(args, cycle_label)
+    enforce_off_window: bool = False,
+):
+    logger.info("%s: 到达断电点，先发送断电指令，再清理通信资源", cycle_label)
+    try:
+        power_off_at = send_command(serial_port, POWER_OFF_COMMAND, "断电")
+    except Exception as exc:
+        power_off_at = None
+        logger.exception("%s: 断电指令发送失败: %s", cycle_label, exc)
+
+    cleanup_deadline = (
+        power_off_at + args.off_seconds
+        if enforce_off_window and power_off_at is not None
+        else None
+    )
+
+    try:
+        command_stopped = request_managed_motion_stop(
+            args,
+            cycle_label,
+            absolute_deadline=cleanup_deadline,
+        )
+    except Exception as exc:
+        logger.exception("%s: 托管停止命令异常: %s", cycle_label, exc)
+        command_stopped = False
     if not command_stopped:
         logger.error("%s: 托管停止命令失败，兜底停止 main.py 进程", cycle_label)
-        processes_stopped = stop_main_processes(processes, args.stop_timeout)
+        try:
+            processes_stopped = stop_main_processes(processes, args.stop_timeout)
+        except Exception as exc:
+            processes_stopped = False
+            logger.exception("%s: 兜底停止 main.py 进程异常: %s", cycle_label, exc)
         if not processes_stopped:
-            logger.error("%s: main.py 进程未能全部停止，跳过断电指令", cycle_label)
-            return False
+            logger.error("%s: main.py 进程未能全部停止；退出电源循环", cycle_label)
+            return False, power_off_at
 
-        logger.info("%s: 已兜底终止 main.py 进程，发送断电指令后退出循环", cycle_label)
-        send_command(serial_port, POWER_OFF_COMMAND, "断电")
-        return False
+        logger.info("%s: 已在断电状态下兜底终止 main.py 进程", cycle_label)
+        return False, power_off_at
 
     if terminate_processes:
         logger.info("%s: 退出流程需要终止长驻 main.py 进程", cycle_label)
-        if not stop_main_processes(processes, args.stop_timeout):
-            logger.error("%s: main.py 进程未能全部停止，跳过断电指令", cycle_label)
-            return False
+        try:
+            processes_stopped = stop_main_processes(processes, args.stop_timeout)
+        except Exception as exc:
+            processes_stopped = False
+            logger.exception("%s: 终止长驻 main.py 进程异常: %s", cycle_label, exc)
+        if not processes_stopped:
+            logger.error("%s: main.py 进程未能全部停止", cycle_label)
+            return False, power_off_at
 
-    logger.info("%s: 运动/进程停止流程已完成，发送断电指令", cycle_label)
-    send_command(serial_port, POWER_OFF_COMMAND, "断电")
-    return True
+    if power_off_at is None:
+        logger.error("%s: 无法确认断电指令已写入串口，退出循环", cycle_label)
+        return False, None
+
+    if cleanup_deadline is not None and time.monotonic() > cleanup_deadline:
+        overrun = time.monotonic() - cleanup_deadline
+        logger.error(
+            "%s: 通信清理超过断电窗口 %.3fs；停止长驻进程并保持断电",
+            cycle_label,
+            overrun,
+        )
+        try:
+            stop_main_processes(processes, args.stop_timeout)
+        except Exception as exc:
+            logger.exception("%s: 清理超时后停止 main.py 进程异常: %s", cycle_label, exc)
+        return False, power_off_at
+
+    logger.info("%s: 已在断电窗口内完成运动停止和通信清理", cycle_label)
+    return True, power_off_at
 
 
 def run_power_cycle_loop(
@@ -380,7 +489,7 @@ def run_power_cycle_loop(
 ) -> int:
     logger.info(
         "开始电源通断托管循环: "
-        "preset=%s, mode=%s, count=%s, start_delay=%ss, 运动窗口=%ss, 断电等待=%ss, "
+        "preset=%s, mode=%s, count=%s, start_delay=%ss, 物理上电=%ss, 物理断电=%ss, "
         "control_timeout=%ss, stop_timeout=%ss",
         ACTIVE_PRESET,
         args.communication_mode,
@@ -399,86 +508,165 @@ def run_power_cycle_loop(
 
     try:
         cycle_index = 1
+        previous_power_off_at = None
         while True:
+            set_process_logging_context(cycle=cycle_index, command_id=None)
             logger.info("power cycle %s: 上电", cycle_index)
-            send_command(serial_port, POWER_ON_COMMAND, "上电")
-            sleep_with_interrupt(args.start_delay)
+            power_on_at = send_command(serial_port, POWER_ON_COMMAND, "上电")
+            if previous_power_off_at is not None:
+                actual_off_seconds = power_on_at - previous_power_off_at
+                logger.info(
+                    "power cycle %s: 断电指令间隔 target=%.3fs, actual=%.3fs, drift=%+.3fs",
+                    cycle_index,
+                    args.off_seconds,
+                    actual_off_seconds,
+                    actual_off_seconds - args.off_seconds,
+                )
+            power_off_deadline = power_on_at + args.on_seconds
+            start_deadline = min(
+                power_on_at + args.start_delay,
+                power_off_deadline,
+            )
+            sleep_until(start_deadline)
 
-            motion_window_started_at = None
+            if time.monotonic() >= power_off_deadline:
+                logger.error(
+                    "power cycle %s: start_delay 已耗尽物理上电窗口，立即断电并退出",
+                    cycle_index,
+                )
+                stopped, power_off_at = power_off_then_stop_motion(
+                    serial_port,
+                    processes,
+                    args,
+                    f"power cycle {cycle_index} 启动前超时",
+                    terminate_processes=True,
+                )
+                log_power_cycle_summary(
+                    result="start_delay_timeout",
+                    managed_start="not_attempted",
+                    home_started=False,
+                    motion_started=False,
+                    on_target=args.on_seconds,
+                    on_actual=(
+                        None if power_off_at is None else power_off_at - power_on_at
+                    ),
+                    off_target=args.off_seconds,
+                    next_action="exit",
+                    level=logging.ERROR,
+                )
+                return 1
+
+            motion_started_at = None
             home_started_counted = False
 
             def handle_start_progress(_data, progress):
-                nonlocal home_started_counted, motion_window_started_at
+                nonlocal home_started_counted, motion_started_at
                 stage = progress.get("stage")
                 if stage == "home_started" and not home_started_counted:
                     home_started_counted = True
                     start_counter.mark_started(cycle_index)
-                elif stage == "motion_started" and motion_window_started_at is None:
-                    motion_window_started_at = time.monotonic()
+                elif stage == "motion_started" and motion_started_at is None:
+                    motion_started_at = time.monotonic()
                     logger.info(
-                        "power cycle %s: 首个设备已开始运动，开始 %.3fs 运动窗口计时",
+                        "power cycle %s: 首个设备已开始运动，物理上电剩余 %.3fs",
                         cycle_index,
-                        args.on_seconds,
+                        max(0.0, power_off_deadline - motion_started_at),
                     )
 
-            if not request_managed_motion_start(
+            start_succeeded = request_managed_motion_start(
                 args,
                 f"power cycle {cycle_index}",
                 on_progress=handle_start_progress,
-            ):
-                logger.error("power cycle %s: 没有设备成功开始运动，准备停止进程并断电后退出", cycle_index)
-                stop_motion_then_power_off(
-                    serial_port,
-                    processes,
-                    args,
-                    f"power cycle {cycle_index} 启动失败",
-                    terminate_processes=True,
-                )
-                return 1
-
-            if motion_window_started_at is None:
-                motion_window_started_at = time.monotonic()
+                absolute_deadline=power_off_deadline,
+            )
+            if not start_succeeded:
                 logger.warning(
-                    "power cycle %s: 未收到 motion_started 进度，使用 start_cycle 完成时间作为运动窗口起点",
+                    "power cycle %s: 本轮设备连接/回零/启动失败；"
+                    "仍按物理上电截止时间断电，下一轮上电后重新连接",
+                    cycle_index,
+                )
+            elif motion_started_at is None:
+                logger.warning(
+                    "power cycle %s: 未收到 motion_started 进度；仍按物理上电截止时间断电",
                     cycle_index,
                 )
 
-            remaining_on_seconds = args.on_seconds - (time.monotonic() - motion_window_started_at)
+            remaining_on_seconds = power_off_deadline - time.monotonic()
             if remaining_on_seconds > 0:
-                logger.debug("power cycle %s: 剩余上电等待 %.3fs", cycle_index, remaining_on_seconds)
-                sleep_with_interrupt(remaining_on_seconds)
+                logger.debug(
+                    "power cycle %s: 剩余物理上电时间 %.3fs",
+                    cycle_index,
+                    remaining_on_seconds,
+                )
+                sleep_until(power_off_deadline)
             else:
                 logger.warning(
-                    "power cycle %s: start_cycle 完成时运动窗口 %.3fs 已结束",
+                    "power cycle %s: start_cycle 完成时物理上电窗口 %.3fs 已结束",
                     cycle_index,
                     args.on_seconds,
                 )
 
-            logger.info("power cycle %s: 停止运动并断开连接，完成后断电", cycle_index)
-            stopped = stop_motion_then_power_off(
+            stopped, power_off_at = power_off_then_stop_motion(
                 serial_port,
                 processes,
                 args,
                 f"power cycle {cycle_index}",
+                enforce_off_window=True,
             )
+            actual_on_seconds = None
+            if power_off_at is not None:
+                actual_on_seconds = power_off_at - power_on_at
+                logger.info(
+                    "power cycle %s: 上电指令间隔 target=%.3fs, actual=%.3fs, drift=%+.3fs",
+                    cycle_index,
+                    args.on_seconds,
+                    actual_on_seconds,
+                    actual_on_seconds - args.on_seconds,
+                )
             if not stopped:
-                logger.error("power cycle %s: 停止流程未完成，退出电源循环", cycle_index)
+                logger.error("power cycle %s: 断电后的停止流程未按时完成，退出电源循环", cycle_index)
+                log_power_cycle_summary(
+                    result="cleanup_failed",
+                    managed_start="success" if start_succeeded else "failed",
+                    home_started=home_started_counted,
+                    motion_started=motion_started_at is not None,
+                    on_target=args.on_seconds,
+                    on_actual=actual_on_seconds,
+                    off_target=args.off_seconds,
+                    next_action="exit",
+                    level=logging.ERROR,
+                )
                 return 1
 
-            sleep_with_interrupt(args.off_seconds)
+            previous_power_off_at = power_off_at
+            sleep_until(power_off_at + args.off_seconds)
+            off_wait_actual = time.monotonic() - power_off_at
+            log_power_cycle_summary(
+                result="completed",
+                managed_start="success" if start_succeeded else "failed",
+                home_started=home_started_counted,
+                motion_started=motion_started_at is not None,
+                on_target=args.on_seconds,
+                on_actual=actual_on_seconds,
+                off_target=args.off_seconds,
+                off_wait_actual=off_wait_actual,
+                next_action="repeat" if start_succeeded else "retry_connect",
+                level=logging.INFO if start_succeeded else logging.WARNING,
+            )
             cycle_index += 1
     except KeyboardInterrupt:
-        logger.info("收到退出信号，先停止运动和长驻 main.py 进程，完成后发送断电指令")
-        return 0 if stop_motion_then_power_off(
+        logger.info("收到退出信号，立即断电，再停止运动和长驻 main.py 进程")
+        stopped, _power_off_at = power_off_then_stop_motion(
             serial_port,
             processes,
             args,
             "退出流程",
             terminate_processes=True,
-        ) else 1
+        )
+        return 0 if stopped else 1
     except Exception as exc:
         logger.exception("电源通断托管循环运行失败: %s", exc)
-        stop_motion_then_power_off(
+        power_off_then_stop_motion(
             serial_port,
             processes,
             args,
@@ -486,12 +674,33 @@ def run_power_cycle_loop(
             terminate_processes=True,
         )
         return 1
+    except BaseException as exc:
+        logger.error("电源通断托管循环收到非标准退出: %s", exc)
+        power_off_then_stop_motion(
+            serial_port,
+            processes,
+            args,
+            "非标准退出流程",
+            terminate_processes=True,
+        )
+        raise
+    finally:
+        try:
+            if not stop_main_processes(processes, args.stop_timeout):
+                logger.error("电源循环退出时仍有 main.py 进程未停止")
+        except Exception as exc:
+            logger.exception("电源循环退出时停止 main.py 进程异常: %s", exc)
 
 
 def main() -> int:
     os.chdir(BASE_DIR)
     args = parse_args()
-    setup_logging(app_name="main_power_cycle")
+    setup_logging(
+        app_name="main_power_cycle",
+        communication_mode=args.communication_mode,
+        device_index="all" if args.launch_count > 1 else "auto",
+    )
+    install_signal_handlers()
     logger.info(
         "main_power_cycle.py 启动参数: preset=%s, communication_mode=%s, "
         "launch_count=%s, port=%s, baud_rate=%s, rs485_ports=%s",
@@ -527,6 +736,14 @@ def main() -> int:
     except Exception as exc:
         logger.exception("main_power_cycle.py 运行失败: %s", exc)
         return 1
+    except KeyboardInterrupt:
+        logger.info("main_power_cycle.py 启动/退出阶段收到终止信号")
+        if serial_port:
+            try:
+                send_command(serial_port, POWER_OFF_COMMAND, "断电")
+            except Exception as exc:
+                logger.exception("终止信号处理期间发送断电指令失败: %s", exc)
+        return 0
     finally:
         try:
             if serial_port:

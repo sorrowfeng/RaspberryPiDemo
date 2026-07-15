@@ -3,6 +3,7 @@ LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式
 提供连接、断开、运动控制等功能
 """
 
+import logging
 import threading
 import time
 from functools import wraps
@@ -26,6 +27,8 @@ from lhandprolib_wrapper import (
     LHandProLibError,
     PyLHandProLib,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _synchronized_lifecycle(method):
@@ -88,6 +91,21 @@ class LHandProController:
         elif self.communication_mode == "RS485":
             from serial_port import SerialPort
 
+    @staticmethod
+    def _handle_lhandpro_log(message: str) -> None:
+        for line in str(message).splitlines():
+            if line.strip():
+                logger.debug("LHandProLib: %s", line.strip())
+
+    def _configure_lhandpro_logging(self) -> None:
+        try:
+            self.lhp.set_log_callback(self._handle_lhandpro_log)
+            self.lhp.log_on(True)
+            logger.debug("LHandProLib 底层日志回调已启用")
+        except Exception as exc:
+            # Native diagnostics are optional and must not block device connection.
+            logger.warning("启用 LHandProLib 底层日志失败: %s", exc, exc_info=True)
+
     def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
         """CANFD 发送回调函数"""
         if self.canfd and self.is_connected:
@@ -95,7 +113,7 @@ class LHandProController:
                 # 使用传入的msg_id作为CANFD消息ID
                 return self.canfd.send(msg_id, data)
             except Exception as e:
-                print(f"CANFD发送失败: {e}")
+                logger.exception("CANFD 发送失败: msg_id=%s, error=%s", msg_id, e)
         return False
 
     def _canfd_receive_callback(self, msg):
@@ -115,7 +133,7 @@ class LHandProController:
                     return False
                 return serial_port.write(data) > 0
         except Exception as e:
-            print(f"RS485发送失败: {e}")
+            logger.exception("RS485 发送失败: %s", e)
         return False
 
     def _rs485_receive_callback(self, data: bytes):
@@ -125,7 +143,7 @@ class LHandProController:
                 if self.lhp and self.is_connected:
                     self.lhp.set_rs485_data_decode(data)
         except Exception as e:
-            print(f"RS485接收解析失败: {e}")
+            logger.exception("RS485 接收解析失败: %s", e)
 
     def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
@@ -138,7 +156,7 @@ class LHandProController:
                     return False
                 return ec_master.setOutputs(data, len(data))
         except Exception as e:
-            print(f"EtherCAT发送失败: {e}")
+            logger.exception("EtherCAT 发送失败: %s", e)
         return False
 
     def _monitor_thread_func(self):
@@ -153,7 +171,7 @@ class LHandProController:
                 time.sleep(0.01)  # 10ms
         except Exception as e:
             if self.stop_flag and not self.stop_flag.is_set():
-                print(f"EtherCAT接收监控线程异常: {e}")
+                logger.exception("EtherCAT 接收监控线程异常: %s", e)
 
     def _has_communication_resources(self) -> bool:
         return any(
@@ -214,6 +232,7 @@ class LHandProController:
 
             # 创建 PyLHandProLib 实例
             self.lhp = PyLHandProLib()
+            self._configure_lhandpro_logging()
 
             retn = False
 
@@ -268,12 +287,17 @@ class LHandProController:
 
             return retn
 
-        except (LHandProLibError, Exception) as e:
-            print(f"操作失败: {e}")
+        except Exception as e:
+            logger.exception(
+                "设备连接或初始化异常: mode=%s, device_index=%s, error=%s",
+                self.communication_mode,
+                device_index,
+                e,
+            )
             try:
                 self.disconnect()
             except Exception as cleanup_error:
-                print(f"连接失败后的资源清理异常: {cleanup_error}")
+                logger.exception("连接失败后的资源清理异常: %s", cleanup_error)
             return False
 
     def _connect_canfd(
@@ -298,7 +322,7 @@ class LHandProController:
         print(f"找到CANFD设备数量：{device_count}")
 
         if device_count == 0:
-            print("未找到CANFD设备")
+            logger.error("未找到 CANFD 设备")
             self.lhp.close()
             self.lhp = None
             self.canfd = None
@@ -335,7 +359,11 @@ class LHandProController:
                         print("请输入数字")
         else:
             if not (0 <= device_index < device_count):
-                print(f"无效的设备索引: {device_index}")
+                logger.error(
+                    "CANFD 设备索引无效: device_index=%s, device_count=%s",
+                    device_index,
+                    device_count,
+                )
                 self.lhp.close()
                 self.lhp = None
                 self.canfd = None
@@ -352,7 +380,12 @@ class LHandProController:
             nom_baudrate=canfd_nom_baudrate,
             dat_baudrate=canfd_dat_baudrate,
         ):
-            print("CANFD设备连接失败")
+            logger.error(
+                "CANFD 设备连接失败: device_index=%s, nominal_baudrate=%s, data_baudrate=%s",
+                device_index,
+                canfd_nom_baudrate,
+                canfd_dat_baudrate,
+            )
             self.lhp.close()
             self.lhp = None
             self.canfd = None
@@ -398,7 +431,7 @@ class LHandProController:
         print(f"找到网口数量：{len(names)}\n")
 
         if len(names) == 0:
-            print("未找到网口")
+            logger.error("未找到可用于 EtherCAT 的网口")
             self.lhp.close()
             self.lhp = None
             return False
@@ -438,7 +471,11 @@ class LHandProController:
                         print("请输入数字")
         else:
             if not (0 <= channel_index < len(names)):
-                print(f"无效的网口索引: {channel_index}")
+                logger.error(
+                    "EtherCAT 网口索引无效: channel_index=%s, interface_count=%s",
+                    channel_index,
+                    len(names),
+                )
                 self.lhp.close()
                 self.lhp = None
                 return False
@@ -446,7 +483,11 @@ class LHandProController:
 
         # 初始化 EtherCAT
         if not self.ec_master.init(channel_index, names):
-            print("初始化失败")
+            logger.error(
+                "EtherCAT 主站初始化失败: channel_index=%s, interface=%s",
+                channel_index,
+                names[channel_index],
+            )
             self.lhp.close()
             self.lhp = None
             return False
@@ -455,7 +496,7 @@ class LHandProController:
         self.is_connected = True
 
         if not self.ec_master.start():
-            print("启动设备失败")
+            logger.error("EtherCAT 主站启动失败: interface=%s", names[channel_index])
             self.lhp.close()
             self.lhp = None
             return False
@@ -469,7 +510,9 @@ class LHandProController:
         # 启动监控线程
         self.stop_flag = threading.Event()
         self.monitor_thread = threading.Thread(
-            target=self._monitor_thread_func, daemon=True
+            target=self._monitor_thread_func,
+            name="EtherCAT-Monitor",
+            daemon=True,
         )
         self.monitor_thread.start()
 
@@ -477,7 +520,7 @@ class LHandProController:
         try:
             self.lhp.initial(LCN_ECAT)
         except LHandProLibError as e:
-            print(f"LHandProLib 初始化失败: {e}")
+            logger.exception("LHandProLib EtherCAT 初始化失败: %s", e)
             self.disconnect()
             return False
 
@@ -511,7 +554,7 @@ class LHandProController:
         if port_name is None:
             available_ports = self.serial_port.scan_available_ports()
             if not available_ports:
-                print("未找到可用串口")
+                logger.error("未找到可用于 RS485 的串口")
                 self.lhp.close()
                 self.lhp = None
                 self.serial_port = None
@@ -527,8 +570,10 @@ class LHandProController:
                     port_name = available_ports[device_index]
                     print(f"根据设备索引 {device_index} 自动选择串口: {port_name}")
                 else:
-                    print(
-                        f"设备索引 {device_index} 超出可用串口数量 {len(available_ports)}"
+                    logger.error(
+                        "RS485 设备索引超出可用串口数量: device_index=%s, port_count=%s",
+                        device_index,
+                        len(available_ports),
                     )
                     self.lhp.close()
                     self.lhp = None
@@ -554,7 +599,11 @@ class LHandProController:
         # 打开串口
         print(f"正在打开串口 {port_name}，波特率: {baud_rate}bps")
         if not self.serial_port.open(port_name, baud_rate):
-            print(f"打开串口失败: {port_name}")
+            logger.error(
+                "打开 RS485 串口失败: port=%s, baudrate=%s",
+                port_name,
+                baud_rate,
+            )
             self.lhp.close()
             self.lhp = None
             self.serial_port = None
@@ -574,7 +623,12 @@ class LHandProController:
         try:
             self.lhp.initial_ex(LCN_RS485, node_id)
         except Exception as e:
-            print(f"初始化失败: {e}")
+            logger.exception(
+                "LHandProLib RS485 初始化失败: port=%s, node_id=%s, error=%s",
+                port_name,
+                node_id,
+                e,
+            )
             self.disconnect()
             return False
         print("初始化成功")
@@ -607,7 +661,7 @@ class LHandProController:
                 try:
                     on_home_start()
                 except Exception as exc:
-                    print(f"回零开始回调失败: {exc}")
+                    logger.exception("回零开始回调失败: %s", exc)
             time.sleep(home_wait_time)
 
         return True
@@ -695,11 +749,15 @@ class LHandProController:
             bool: 是否成功发送运动指令
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法执行位置运动：设备未连接")
             return False
 
         if len(positions) != self.dof_active:
-            print(f"位置数量不匹配: 期望 {self.dof_active}, 得到 {len(positions)}")
+            logger.error(
+                "位置数量不匹配: expected=%s, actual=%s",
+                self.dof_active,
+                len(positions),
+            )
             return False
 
         try:
@@ -715,7 +773,7 @@ class LHandProController:
                 time.sleep(wait_time)
             return True
         except Exception as e:
-            print(f"运动控制失败: {e}")
+            logger.exception("位置运动控制失败: %s", e)
             return False
 
     def move_to_angles(
@@ -738,11 +796,15 @@ class LHandProController:
             bool: 是否成功发送运动指令
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法执行角度运动：设备未连接")
             return False
 
         if len(angles) != self.dof_active:
-            print(f"角度数量不匹配: 期望 {self.dof_active}, 得到 {len(angles)}")
+            logger.error(
+                "角度数量不匹配: expected=%s, actual=%s",
+                self.dof_active,
+                len(angles),
+            )
             return False
 
         try:
@@ -758,7 +820,7 @@ class LHandProController:
                 time.sleep(wait_time)
             return True
         except Exception as e:
-            print(f"运动控制失败: {e}")
+            logger.exception("角度运动控制失败: %s", e)
             return False
 
     def move_sequence(
@@ -781,7 +843,7 @@ class LHandProController:
             bool: 是否成功执行所有运动
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法执行运动序列：设备未连接")
             return False
 
         try:
@@ -790,12 +852,12 @@ class LHandProController:
                     pos_list, velocity, max_current, wait_time
                 )
                 if not success:
-                    print(f"第 {i} 个位置运动失败")
+                    logger.error("运动序列位置失败: sequence_index=%s", i)
                     return False
                 print(f"line: {i} positions: {pos_list} OK")
             return True
         except Exception as e:
-            print(f"运动序列执行失败: {e}")
+            logger.exception("运动序列执行失败: %s", e)
             return False
 
     def enable_motors(self, enable: bool = True):
@@ -806,14 +868,14 @@ class LHandProController:
             enable: True为使能，False为禁用
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法设置电机使能：设备未连接")
             return
 
         try:
             self.lhp.set_enable(0, enable)
             print(f"电机{'使能' if enable else '禁用'}成功")
         except Exception as e:
-            print(f"设置电机使能状态失败: {e}")
+            logger.exception("设置电机使能状态失败: enable=%s, error=%s", enable, e)
 
     def home(self, wait_time: float = 5.0):
         """
@@ -823,7 +885,7 @@ class LHandProController:
             wait_time: 回零等待时间（秒）
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法执行回零：设备未连接")
             return
 
         try:
@@ -832,21 +894,21 @@ class LHandProController:
             time.sleep(wait_time)
             print("回零完成")
         except Exception as e:
-            print(f"回零失败: {e}")
+            logger.exception("回零失败: %s", e)
 
     def stop_motors(self):
         """
         停止所有电机运动
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法停止电机：设备未连接")
             return
 
         try:
             self.lhp.stop_motors(0)
             print("所有电机已停止")
         except Exception as e:
-            print(f"停止电机失败: {e}")
+            logger.exception("停止电机失败: %s", e)
 
     def play_gesture(
         self, gesture_id: int, velocity: int = 20000, current: int = 1000
@@ -863,7 +925,7 @@ class LHandProController:
             bool: 是否执行成功
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法执行手势：设备未连接")
             return False
 
         try:
@@ -873,7 +935,13 @@ class LHandProController:
             )
             return True
         except Exception as e:
-            print(f"手势执行失败: {e}")
+            logger.exception(
+                "手势执行失败: gesture_id=%s, velocity=%s, current=%s, error=%s",
+                gesture_id,
+                velocity,
+                current,
+                e,
+            )
             return False
 
     def move_to_zero(
@@ -907,14 +975,14 @@ class LHandProController:
         清除所有电机报警
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法清除报警：设备未连接")
             return
 
         try:
             self.lhp.set_clear_alarm(0)
             print("已清除所有电机报警")
         except Exception as e:
-            print(f"清除报警失败: {e}")
+            logger.exception("清除报警失败: %s", e)
 
     def get_alarm(self) -> bool:
         """
@@ -924,18 +992,18 @@ class LHandProController:
             bool: 如果有任何一个电机报警，返回True；否则返回False
         """
         if not self.is_connected or not self.lhp:
-            print("设备未连接")
+            logger.warning("无法获取报警状态：设备未连接")
             return False
 
         try:
             for motor_id in range(1, self.dof_active + 1):
                 alarm = self.lhp.get_now_alarm(motor_id)
                 if alarm == 1:
-                    print(f"WARNING: 电机 {motor_id} 报警")
+                    logger.warning("检测到电机报警: motor_id=%s", motor_id)
                     return True
             return False
         except Exception as e:
-            print(f"获取报警状态失败: {e}")
+            logger.exception("获取报警状态失败: %s", e)
             return False
 
     def __enter__(self):
@@ -974,11 +1042,15 @@ def _move_to_positions_with_params(
 ) -> bool:
     """移动到指定位置，并允许为每个轴单独指定速度和电流。"""
     if not self.is_connected or not self.lhp:
-        print("设备未连接")
+        logger.warning("无法执行带参数位置运动：设备未连接")
         return False
 
     if len(positions) != self.dof_active:
-        print(f"位置数量不匹配: 期望 {self.dof_active}, 得到 {len(positions)}")
+        logger.error(
+            "位置数量不匹配: expected=%s, actual=%s",
+            self.dof_active,
+            len(positions),
+        )
         return False
 
     try:
@@ -1000,7 +1072,7 @@ def _move_to_positions_with_params(
             time.sleep(wait_time)
         return True
     except Exception as e:
-        print(f"运动控制失败: {e}")
+        logger.exception("带参数运动控制失败: %s", e)
         return False
 
 

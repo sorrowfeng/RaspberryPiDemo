@@ -8,6 +8,8 @@ import sys
 import time
 import uuid
 
+from log import LOG_FILE_ENV, LOG_RUN_ID_ENV, get_logging_context
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
@@ -201,6 +203,8 @@ def complete_control_command(communication_mode, device_index, command, ok: bool
         "message": message,
         "pid": os.getpid(),
         "completed_at": time.time(),
+        "log_context": command.get("log_context") or {},
+        "log_file": os.environ.get(LOG_FILE_ENV),
     }
     atomic_write_json(runtime_response_path(communication_mode, device_index), response)
 
@@ -223,6 +227,8 @@ def emit_control_progress(communication_mode, device_index, command, stage: str,
         "message": message,
         "pid": os.getpid(),
         "updated_at": time.time(),
+        "log_context": command.get("log_context") or {},
+        "log_file": os.environ.get(LOG_FILE_ENV),
     }
     atomic_write_json(runtime_progress_path(communication_mode, device_index), progress)
 
@@ -300,6 +306,8 @@ def register_runtime_pid(communication_mode, device_index):
         "device_index": device_index,
         "device_label": device_label(device_index),
         "started_at": time.time(),
+        "log_run_id": os.environ.get(LOG_RUN_ID_ENV),
+        "log_file": os.environ.get(LOG_FILE_ENV),
     }
     atomic_write_json(path, data)
     logging.info("已写入 main.py PID 文件: %s", path)
@@ -432,6 +440,7 @@ def request_existing_main_action(
     on_progress=None,
     min_successes=None,
     command_spacing_seconds: float = 0.0,
+    absolute_deadline=None,
 ) -> bool:
     targets = []
     for data in iter_runtime_pid_files(communication_mode, device_index):
@@ -449,6 +458,13 @@ def request_existing_main_action(
             device_index,
         )
         return False
+
+    effective_deadline = None
+    if absolute_deadline is not None:
+        effective_deadline = min(
+            absolute_deadline,
+            time.monotonic() + timeout,
+        )
 
     command_ids = {}
     pending = {}
@@ -480,11 +496,15 @@ def request_existing_main_action(
                 ):
                     progressed.add((pid, progress.get("stage")))
                     logging.info(
-                        "main.py 控制命令进度: action=%s, stage=%s, pid=%s, message=%s",
+                        "main.py 控制命令进度: action=%s, command_id=%s, stage=%s, "
+                        "pid=%s, device=%s, message=%s, log_file=%s",
                         action,
+                        command_ids[pid],
                         progress.get("stage"),
                         pid,
+                        data.get("device_label"),
                         progress.get("message"),
+                        data.get("log_file"),
                     )
                     if on_progress:
                         try:
@@ -508,18 +528,26 @@ def request_existing_main_action(
             if response.get("ok"):
                 succeeded.add(pid)
                 logging.info(
-                    "main.py 控制命令完成: action=%s, pid=%s, message=%s",
+                    "main.py 控制命令完成: action=%s, command_id=%s, pid=%s, "
+                    "device=%s, message=%s, log_file=%s",
                     action,
+                    command_ids[pid],
                     pid,
+                    data.get("device_label"),
                     response.get("message"),
+                    data.get("log_file"),
                 )
             else:
                 failed[pid] = response.get("message") or "命令执行失败"
                 logging.error(
-                    "main.py 控制命令失败: action=%s, pid=%s, message=%s",
+                    "main.py 控制命令失败: action=%s, command_id=%s, pid=%s, "
+                    "device=%s, message=%s, log_file=%s",
                     action,
+                    command_ids[pid],
                     pid,
+                    data.get("device_label"),
                     failed[pid],
+                    data.get("log_file"),
                 )
             pending.pop(pid, None)
 
@@ -531,8 +559,13 @@ def request_existing_main_action(
             if remaining > 0:
                 time.sleep(min(0.1, remaining))
 
+    dispatch_stopped_at = None
     for index, data in enumerate(targets):
-        command_id = f"{os.getpid()}-{time.time_ns()}-{uuid.uuid4().hex}"
+        if effective_deadline is not None and time.monotonic() >= effective_deadline:
+            dispatch_stopped_at = index
+            break
+
+        command_id = f"{os.getpid()}-{uuid.uuid4().hex[:12]}"
         command_ids[data["pid"]] = command_id
         response_path = runtime_response_path(data.get("communication_mode"), data.get("device_index"))
         try:
@@ -554,6 +587,11 @@ def request_existing_main_action(
             "id": command_id,
             "action": action,
             "payload": payload or {},
+            "log_context": {
+                key: value
+                for key, value in get_logging_context().items()
+                if key in ("cycle",) and value not in (None, "", "-")
+            },
             "created_at": time.time(),
             "source_pid": os.getpid(),
         }
@@ -561,15 +599,20 @@ def request_existing_main_action(
         atomic_write_json(command_path, command)
         pending[data["pid"]] = data
         logging.info(
-            "已发送 main.py 控制命令: action=%s, pid=%s, mode=%s, device=%s",
+            "已发送 main.py 控制命令: action=%s, command_id=%s, pid=%s, "
+            "mode=%s, device=%s, log_file=%s",
             action,
+            command_id,
             data["pid"],
             data.get("communication_mode"),
             data.get("device_label"),
+            data.get("log_file"),
         )
 
         if command_spacing_seconds > 0 and index < len(targets) - 1:
             spacing_deadline = time.monotonic() + command_spacing_seconds
+            if effective_deadline is not None:
+                spacing_deadline = min(spacing_deadline, effective_deadline)
             logging.debug(
                 "等待下一个 main.py 控制命令间隔: action=%s, current_device=%s, spacing=%ss",
                 action,
@@ -578,20 +621,41 @@ def request_existing_main_action(
             )
             poll_pending_until(spacing_deadline)
 
-    deadline = time.monotonic() + timeout
+    if dispatch_stopped_at is not None:
+        for data in targets[dispatch_stopped_at:]:
+            failed[data["pid"]] = "控制截止时间前未能发送控制命令"
+            logging.error(
+                "控制截止时间前未能发送 main.py 控制命令: "
+                "action=%s, pid=%s, mode=%s, device=%s",
+                action,
+                data["pid"],
+                data.get("communication_mode"),
+                data.get("device_label"),
+            )
+
+    deadline = (
+        effective_deadline
+        if effective_deadline is not None
+        else time.monotonic() + timeout
+    )
     while time.monotonic() < deadline and pending:
         poll_pending_once()
         if pending:
-            time.sleep(0.1)
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(0.1, remaining))
 
     for pid, data in pending.items():
         failed[pid] = "等待控制命令响应超时"
         logging.error(
-            "main.py 控制命令超时: action=%s, pid=%s, mode=%s, device=%s",
+            "main.py 控制命令超时: action=%s, command_id=%s, pid=%s, "
+            "mode=%s, device=%s, log_file=%s",
             action,
+            command_ids[pid],
             pid,
             data.get("communication_mode"),
             data.get("device_label"),
+            data.get("log_file"),
         )
 
     if min_successes is not None:

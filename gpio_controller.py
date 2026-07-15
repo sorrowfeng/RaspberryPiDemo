@@ -3,16 +3,19 @@
 用于监控GPIO输入和控制GPIO输出
 """
 
-import time
-import threading
+import logging
 import platform
+import threading
+import time
 from typing import Optional, Callable, Dict, Tuple
 try:
     import RPi.GPIO as GPIO
     GPIO_AVAILABLE = True
 except ImportError:
     GPIO_AVAILABLE = False
-    print("警告: RPi.GPIO 未安装，GPIO功能将不可用")
+
+
+logger = logging.getLogger(__name__)
 
 
 def _is_raspberry_pi() -> bool:
@@ -99,7 +102,7 @@ class GPIOController:
             edge = GPIO.RISING
 
         if pin in self.input_pins:
-            print(f"GPIO {pin} 已经设置为输入")
+            logger.debug("GPIO 已经设置为输入: pin=%s", pin)
             return
 
         GPIO.setup(pin, GPIO.IN, pull_up_down=pull_up_down)
@@ -119,13 +122,17 @@ class GPIOController:
             initial: 初始输出状态（True=高电平，False=低电平）
         """
         if pin in self.output_pins:
-            print(f"GPIO {pin} 已经设置为输出")
+            logger.debug("GPIO 已经设置为输出: pin=%s", pin)
             return
 
         GPIO.setup(pin, GPIO.OUT)
         GPIO.output(pin, GPIO.HIGH if initial else GPIO.LOW)
         self.output_pins[pin] = initial
-        print(f"GPIO {pin} 设置为输出，初始状态: {'HIGH' if initial else 'LOW'}")
+        logger.debug(
+            "GPIO 设置为输出: pin=%s, initial=%s",
+            pin,
+            "HIGH" if initial else "LOW",
+        )
 
     def output_high(self, pin: int, duration: Optional[float] = None):
         """
@@ -136,7 +143,7 @@ class GPIOController:
             duration: 持续时间（秒），如果为None则保持高电平
         """
         if pin not in self.output_pins:
-            print(f"GPIO {pin} 未设置为输出")
+            logger.warning("GPIO 未设置为输出: pin=%s", pin)
             return
 
         with self.lock:
@@ -158,7 +165,7 @@ class GPIOController:
             pin: GPIO引脚号
         """
         if pin not in self.output_pins:
-            print(f"GPIO {pin} 未设置为输出")
+            logger.warning("GPIO 未设置为输出: pin=%s", pin)
             return
 
         with self.lock:
@@ -186,7 +193,7 @@ class GPIOController:
             bool: True=高电平，False=低电平
         """
         if pin not in self.input_pins:
-            print(f"GPIO {pin} 未设置为输入")
+            logger.warning("GPIO 未设置为输入: pin=%s", pin)
             return False
 
         return GPIO.input(pin) == GPIO.HIGH
@@ -197,7 +204,11 @@ class GPIOController:
             return
 
         self.stop_flag.clear()
-        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread = threading.Thread(
+            target=self._monitor_loop,
+            name="GPIO-Monitor",
+            daemon=True,
+        )
         self.monitor_thread.start()
 
     def _monitor_loop(self):
@@ -239,9 +250,14 @@ class GPIOController:
                                 # 状态仍然有效，执行回调
                                 try:
                                     self.callbacks[pin]()
-                                    print(f"GPIO {pin} {edge_type} 触发回调，防抖时间: {debounce}ms")
+                                    logger.info(
+                                        "GPIO 触发回调: pin=%s, edge=%s, debounce_ms=%s",
+                                        pin,
+                                        edge_type,
+                                        debounce,
+                                    )
                                 except Exception as e:
-                                    print(f"GPIO {pin} 回调函数执行错误: {e}")
+                                    logger.exception("GPIO 回调函数执行异常: pin=%s, error=%s", pin, e)
                             # 移除该触发
                             del pending_triggers[pin]
 
@@ -281,7 +297,7 @@ class GPIOController:
         self.callbacks.clear()
         self.rgb_pwm = None
         self.rgb_pins = None
-        print("GPIO资源已清理")
+        logger.info("GPIO 资源已清理")
 
     def __enter__(self):
         """上下文管理器入口"""

@@ -11,6 +11,7 @@ Linux:
 """
 
 import os
+import logging
 import sys
 import threading
 import time
@@ -36,6 +37,7 @@ from typing import Callable, Optional
 STATUS_OK = 0
 dlc2len = [0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64]
 IS_WINDOWS = sys.platform.startswith("win")
+logger = logging.getLogger(__name__)
 
 
 class CANFDException(Exception):
@@ -241,7 +243,11 @@ if IS_WINDOWS:
                 raise CANFDException("设备未连接")
 
             self._receive_stop_event.clear()
-            self._receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self._receive_thread = threading.Thread(
+                target=self._receive_loop,
+                name="CANFD-Receive",
+                daemon=True,
+            )
             self._receive_thread.start()
 
         def _receive_loop(self) -> None:
@@ -278,10 +284,10 @@ if IS_WINDOWS:
                             try:
                                 self._receive_callback(canfd_msg)
                             except Exception as exc:
-                                print(f"CANFD接收回调异常: {exc}")
+                                logger.exception("CANFD 接收回调异常: %s", exc)
                     time.sleep(0.001)
             except Exception as exc:
-                print(f"CANFD接收线程异常: {exc}")
+                logger.exception("CANFD 接收线程异常: %s", exc)
 
         @property
         def is_connected(self) -> bool:
@@ -514,7 +520,11 @@ else:
             if not self._is_connected:
                 raise CANFDException("设备未连接")
             self._receive_stop_event.clear()
-            self._receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self._receive_thread = threading.Thread(
+                target=self._receive_loop,
+                name="CANFD-Receive",
+                daemon=True,
+            )
             self._receive_thread.start()
 
         def _receive_loop(self) -> None:
@@ -549,10 +559,10 @@ else:
                             try:
                                 self._receive_callback(canfd_msg)
                             except Exception as exc:
-                                print(f"CANFD接收回调异常: {exc}")
+                                logger.exception("CANFD 接收回调异常: %s", exc)
                     time.sleep(0.001)
             except Exception as exc:
-                print(f"CANFD接收线程异常: {exc}")
+                logger.exception("CANFD 接收线程异常: %s", exc)
                 if self._is_connected:
                     try:
                         self.disconnect()
