@@ -43,6 +43,8 @@ def _synchronized_lifecycle(method):
 class LHandProController:
     """LHandPro 控制器封装类 - 支持ECAT、CANFD和RS485三模式"""
 
+    ECAT_STARTUP_DEADLINE_MARGIN_SECONDS = 0.5
+
     def __init__(self, communication_mode: str):
         """初始化控制器
 
@@ -200,6 +202,8 @@ class LHandProController:
         rs485_baud_rate: int = 500000,
         rs485_node_id: int = 1,
         on_home_start=None,
+        ecat_connect_retry_interval_seconds: float = 0.0,
+        ecat_connect_deadline_monotonic=None,
     ) -> bool:
         """
         连接并初始化 LHandPro 设备
@@ -255,6 +259,8 @@ class LHandProController:
                     channel_index=device_index,
                     auto_select=auto_select,
                     on_home_start=on_home_start,
+                    connect_retry_interval_seconds=ecat_connect_retry_interval_seconds,
+                    connect_deadline_monotonic=ecat_connect_deadline_monotonic,
                 )
             elif self.communication_mode == "RS485":
                 retn = self._connect_rs485(
@@ -419,6 +425,8 @@ class LHandProController:
         channel_index,
         auto_select,
         on_home_start=None,
+        connect_retry_interval_seconds=0.0,
+        connect_deadline_monotonic=None,
     ):
         """使用ECAT模式连接设备"""
         # 创建 EtherCAT 主站
@@ -482,7 +490,12 @@ class LHandProController:
             print(f"使用指定网口: [{channel_index}] {names[channel_index]}")
 
         # 初始化 EtherCAT
-        if not self.ec_master.init(channel_index, names):
+        if not self.ec_master.init(
+            channel_index,
+            names,
+            discovery_retry_interval_seconds=connect_retry_interval_seconds,
+            discovery_deadline_monotonic=connect_deadline_monotonic,
+        ):
             logger.error(
                 "EtherCAT 主站初始化失败: channel_index=%s, interface=%s",
                 channel_index,
@@ -491,6 +504,22 @@ class LHandProController:
             self.lhp.close()
             self.lhp = None
             return False
+
+        if connect_deadline_monotonic is not None:
+            required_startup_seconds = (
+                (1.0 if enable_motors else 0.0)
+                + (home_wait_time if home_motors else 0.0)
+                + self.ECAT_STARTUP_DEADLINE_MARGIN_SECONDS
+            )
+            remaining_seconds = connect_deadline_monotonic - time.monotonic()
+            if remaining_seconds < required_startup_seconds:
+                logger.warning(
+                    "EtherCAT 从站发现时间过晚，剩余上电时间不足以安全完成使能和回零；"
+                    "remaining=%.3fs, required=%.3fs, 本轮不启动运动",
+                    remaining_seconds,
+                    required_startup_seconds,
+                )
+                return False
 
         print("连接成功")
         self.is_connected = True
@@ -679,6 +708,12 @@ class LHandProController:
                 monitor_thread.join(timeout=2.0)
                 if monitor_thread.is_alive():
                     raise RuntimeError("EtherCAT TPDO 监控线程未在超时时间内退出")
+            if monitor_thread:
+                logger.info(
+                    "EtherCAT TPDO 监控线程已停止: thread=%s, alive=%s",
+                    monitor_thread.name,
+                    monitor_thread.is_alive(),
+                )
             self.monitor_thread = None
             self.stop_flag = None
 
@@ -689,6 +724,7 @@ class LHandProController:
                     time.sleep(0.1)
                     if self.ec_master is ec_master:
                         self.ec_master = None
+                    logger.info("EtherCAT 主站通信资源已释放")
         elif self.communication_mode == "RS485" and self.serial_port:
             # 先等待正在执行的收发回调结束；is_connected=False 会阻止新回调进入实际通信。
             with self._rs485_callback_lock:
@@ -712,6 +748,7 @@ class LHandProController:
             if self.lhp:
                 self.lhp.close()
                 self.lhp = None
+                logger.info("LHandProLib EtherCAT 资源已关闭")
         elif self.communication_mode == "RS485":
             # RS485 工作线程可能执行接收解码，必须在线程退出后再关闭库句柄。
             self.is_connected = False

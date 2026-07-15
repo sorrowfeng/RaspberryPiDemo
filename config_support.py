@@ -258,6 +258,15 @@ def export_legacy_config(
             "MAIN_POWER_CYCLE_ON_SECONDS": feature_flags.get(
                 "main_power_cycle_on_seconds", 10.0
             ),
+            "MAIN_POWER_CYCLE_DISCONNECT_LEAD_SECONDS": feature_flags.get(
+                "main_power_cycle_disconnect_lead_seconds", 0.0
+            ),
+            "MAIN_POWER_CYCLE_FORCE_OFF_AT_DEADLINE": feature_flags.get(
+                "main_power_cycle_force_off_at_deadline", False
+            ),
+            "MAIN_POWER_CYCLE_CONNECT_RETRY_INTERVAL": feature_flags.get(
+                "main_power_cycle_connect_retry_interval", 0.0
+            ),
             "MAIN_POWER_CYCLE_OFF_SECONDS": feature_flags.get(
                 "main_power_cycle_off_seconds", 1.0
             ),
