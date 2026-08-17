@@ -21,6 +21,7 @@ from lhandprolib_wrapper import (
     LAC_DOF_6,
     LAC_DOF_6_S,
     LCM_POSITION,
+    LCM_TORQUE,
     LCN_CANFD,
     LCN_ECAT,
     LCN_RS485,
@@ -285,11 +286,11 @@ class LHandProController:
             else:
                 self.lhp.set_move_no_home(1)
 
-            # 设置扭矩控制模式
+            # 设置控制模式（力矩控制/位置控制）
             if ENABLE_TORQUE_CONTROL:
-                self.lhp.set_torque_control_mode(0, 1)
+                self.lhp.set_control_mode(0, LCM_TORQUE)
             else:
-                self.lhp.set_torque_control_mode(0, 0)
+                self.lhp.set_control_mode(0, LCM_POSITION)
 
             return retn
 
