@@ -79,6 +79,9 @@
 
 - `main_power_cycle_start_delay`
 - `main_power_cycle_on_seconds`（从上电指令到断电指令的目标时长）
+- `main_power_cycle_disconnect_lead_seconds`（在目标断电时刻前，预留给停止运动和断开通信的时间）
+- `main_power_cycle_force_off_at_deadline`（断开未完成时，是否仍在目标时刻强制物理断电）
+- `main_power_cycle_connect_retry_interval`（ECAT 同一上电窗口内扫描不到从站时的重试间隔，`0` 表示禁用）
 - `main_power_cycle_off_seconds`（从断电指令到下一次上电指令的目标时长）
 - `main_power_cycle_baud_rate`
 - `main_power_cycle_port`
@@ -86,11 +89,14 @@
 - `main_power_cycle_stop_timeout`
 - `main_power_cycle_control_timeout`
 
-当前主电源通断测试默认时间：
+当前 ECAT 主电源通断测试时间：
 
-- 上电后等待 `main_power_cycle_start_delay=2.0s`
-- 从发送上电指令起，物理上电窗口持续 `main_power_cycle_on_seconds=10.0s`
-- 从发送断电指令起，物理断电窗口持续 `main_power_cycle_off_seconds=1.0s`
+- 上电后等待 `main_power_cycle_start_delay=5.0s` 开始连接
+- 从发送上电指令起，物理上电窗口持续 `main_power_cycle_on_seconds=20.0s`
+- 在目标断电时刻前 `main_power_cycle_disconnect_lead_seconds=2.0s` 开始清理
+- `main_power_cycle_force_off_at_deadline=True`：清理未完成也会在第 20 秒发送物理断电
+- `main_power_cycle_connect_retry_interval=1.0s`：第 5 秒首次扫描失败后，在本轮上电窗口内继续扫描
+- 从实际断电指令起，物理断电窗口持续 `main_power_cycle_off_seconds=3.0s`
 
 如果开机自启且现场可能有多个串口，建议把 `main_power_cycle_port` 固定成实际端口，例如：
 
@@ -154,13 +160,17 @@ launch.py
            发送上电
            等待 main_power_cycle_start_delay
            按 device index 顺序发送 start_cycle 控制命令，不同 main.py 间隔 1s
+           ECAT 扫描不到从站时，每隔 main_power_cycle_connect_retry_interval 重建主站并再次扫描
+           每次 ECAT 扫描前记录网口 carrier 和 operstate；到断电前清理时刻停止重试
+           从站发现过晚且剩余时间不足以完成使能、回零时，本轮不再启动运动
            main.py 内部连接、回零并开始循环运动
            任意一个 main.py 发出 home_started 进度后，GPIO12 输出一次计数脉冲
            未接设备的 start_cycle 失败只记录，不中断电源循环；下一轮上电后重新连接
-           上电总时长达到 main_power_cycle_on_seconds 后立即发送断电
-           断电后发送 stop_cycle，main.py 内部停止运动并清理通信资源
-           清理必须在 main_power_cycle_off_seconds 窗口内完成，否则保持断电并退出
-           到达断电窗口截止时间后进入下一轮上电
+           在目标断电时刻前 main_power_cycle_disconnect_lead_seconds 开始发送 stop_cycle
+           main.py 等待循环运动线程退出，然后停止电机并断开 CANFD、ECAT 或 RS485 通信
+           若通信提前断开，等待到原目标时刻再发送物理断电
+           force_off_at_deadline=True 时，即使通信断开未完成，也会在目标时刻强制物理断电并记录 forced_power_off
+           从实际断电指令时刻起等待 main_power_cycle_off_seconds 后进入下一轮上电
 ```
 
 上电指令：
@@ -293,7 +303,7 @@ find . \
 
 是否进入普通启动还是主电源通断测试，由当前配置决定。
 
-注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。为保证物理通断时间，脚本会在上电窗口截止时先发送断电，再要求 `stop_cycle` 在断电窗口内完成通信清理；清理超时会保持断电并退出，不会延迟后继续下一轮。systemd 服务仍建议配置足够的 `TimeoutStopSec`，避免清理尚未完成就被系统强杀。
+注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，GPIO 业务输入会被禁用，避免停止与断开期间由按钮、抓握或手套回调重新发起通信；状态和循环计数输出仍保留。`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。脚本会在目标物理断电时刻前预留清理窗口；ECAT 预设启用硬断电截止，断开未完成也会在目标时刻物理断电，完整保持配置的断电窗口，并在下一轮重新尝试连接。systemd 服务仍建议配置足够的 `TimeoutStopSec`。
 
 ## 绿联 USB-to-RS485 适配器识别问题
 

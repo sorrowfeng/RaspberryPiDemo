@@ -29,6 +29,7 @@ PRESET = {
         "enable_main_power_cycle": True,
         "main_power_cycle_start_delay": 2.0,
         "main_power_cycle_on_seconds": 10.0,
+        "main_power_cycle_disconnect_lead_seconds": 0.0,
         "main_power_cycle_off_seconds": 1.0,
         "main_power_cycle_baud_rate": 9600,
         "main_power_cycle_port": None,

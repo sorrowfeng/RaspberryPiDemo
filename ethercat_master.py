@@ -5,8 +5,10 @@ EtherCAT 主站封装库
 import logging
 import threading
 import time
-import pysoem
+from pathlib import Path
 from typing import List, Optional
+
+import pysoem
 
 logger = logging.getLogger(__name__)
 
@@ -117,22 +119,131 @@ class EthercatMaster:
                 pysoem.al_status_code_to_string(slave.al_status),
             )
 
-    def init(self, channel_index: int, ifaces: List[str]) -> bool:
+    @staticmethod
+    def _read_interface_status(ifname: str):
+        """Read Linux carrier/operstate without making diagnostics mandatory."""
+        interface_path = Path("/sys/class/net") / ifname
+
+        def read_value(name: str) -> str:
+            try:
+                return (interface_path / name).read_text(encoding="ascii").strip()
+            except OSError:
+                return "unavailable"
+
+        return read_value("carrier"), read_value("operstate")
+
+    def _close_master_between_discovery_attempts(self) -> bool:
+        if not self.master or not self._master_opened:
+            return True
+        try:
+            self.master.close()
+        except Exception as exc:
+            logger.exception(
+                "EtherCAT 扫描失败后关闭主站网口异常: interface=%s, error=%s",
+                self.ifname,
+                exc,
+            )
+            return False
+        self._master_opened = False
+        self.master = pysoem.Master()
+        return True
+
+    def init(
+        self,
+        channel_index: int,
+        ifaces: List[str],
+        *,
+        discovery_retry_interval_seconds: float = 0.0,
+        discovery_deadline_monotonic=None,
+    ) -> bool:
         """初始化 EtherCAT 主站和从站（更贴近SOEM流程）"""
         initialized = False
         try:
             self.ifname = ifaces[channel_index]
             print(f"🔌 正在初始化 EtherCAT 主站，使用网口: {self.ifname}")
-            self.master.open(self.ifname)
-            self._master_opened = True
+            retry_interval = max(0.0, float(discovery_retry_interval_seconds or 0.0))
+            attempt = 0
 
-            # 初始化从站配置
-            if self.master.config_init() <= 0:
-                logger.error(
-                    "未发现任何 EtherCAT 从站设备: interface=%s",
-                    self.ifname,
+            while True:
+                if (
+                    attempt > 0
+                    and discovery_deadline_monotonic is not None
+                    and time.monotonic() >= discovery_deadline_monotonic
+                ):
+                    logger.error(
+                        "EtherCAT 从站扫描重试已到截止时间: interface=%s, attempts=%s",
+                        self.ifname,
+                        attempt,
+                    )
+                    return False
+
+                attempt += 1
+                if self.master is None:
+                    self.master = pysoem.Master()
+                self.master.open(self.ifname)
+                self._master_opened = True
+
+                carrier, operstate = self._read_interface_status(self.ifname)
+                remaining = (
+                    None
+                    if discovery_deadline_monotonic is None
+                    else max(0.0, discovery_deadline_monotonic - time.monotonic())
                 )
-                return False
+                logger.info(
+                    "EtherCAT 从站扫描开始: interface=%s, attempt=%s, "
+                    "carrier=%s, operstate=%s, remaining=%s",
+                    self.ifname,
+                    attempt,
+                    carrier,
+                    operstate,
+                    "-" if remaining is None else f"{remaining:.3f}s",
+                )
+
+                slave_count = self.master.config_init()
+                if slave_count > 0:
+                    logger.info(
+                        "EtherCAT 从站扫描成功: interface=%s, attempt=%s, slaves=%s",
+                        self.ifname,
+                        attempt,
+                        slave_count,
+                    )
+                    break
+
+                now = time.monotonic()
+                can_retry = bool(
+                    retry_interval > 0
+                    and discovery_deadline_monotonic is not None
+                    and now < discovery_deadline_monotonic
+                )
+                if not can_retry:
+                    logger.error(
+                        "未发现任何 EtherCAT 从站设备: interface=%s, attempt=%s, "
+                        "scan_result=%s, carrier=%s, operstate=%s",
+                        self.ifname,
+                        attempt,
+                        slave_count,
+                        carrier,
+                        operstate,
+                    )
+                    return False
+
+                retry_delay = min(
+                    retry_interval,
+                    max(0.0, discovery_deadline_monotonic - now),
+                )
+                logger.warning(
+                    "未发现 EtherCAT 从站，%.3fs 后重新扫描: interface=%s, "
+                    "attempt=%s, scan_result=%s, carrier=%s, operstate=%s",
+                    retry_delay,
+                    self.ifname,
+                    attempt,
+                    slave_count,
+                    carrier,
+                    operstate,
+                )
+                if not self._close_master_between_discovery_attempts():
+                    return False
+                time.sleep(retry_delay)
 
             self.slaves = self.master.slaves
             print(f"✅ 发现 {len(self.slaves)} 个从站设备")
@@ -218,12 +329,28 @@ class EthercatMaster:
             io_thread.join(timeout=self.IO_THREAD_JOIN_TIMEOUT)
             if io_thread.is_alive():
                 raise RuntimeError("EtherCAT PDO 线程未在超时时间内退出")
+        if io_thread:
+            logger.info(
+                "EtherCAT PDO 线程已停止: thread=%s, alive=%s",
+                io_thread.name,
+                io_thread.is_alive(),
+            )
         self.thread = None
 
         if self.master and self._master_opened:
             try:
                 self.master.state = pysoem.INIT_STATE
-                self.master.write_state()
+                init_wkc = self.master.write_state()
+                init_state = self.master.state_check(pysoem.INIT_STATE, 50000)
+                init_confirmed = init_state == pysoem.INIT_STATE
+                log = logger.info if init_confirmed else logger.warning
+                log(
+                    "EtherCAT INIT 切换结果: interface=%s, write_wkc=%s, state=%s, confirmed=%s",
+                    self.ifname,
+                    init_wkc,
+                    init_state,
+                    init_confirmed,
+                )
                 time.sleep(0.1)
             except Exception as e:
                 logger.warning(
@@ -238,11 +365,13 @@ class EthercatMaster:
             except Exception as e:
                 raise RuntimeError(f"EtherCAT 主站关闭失败: {e}") from e
             self._master_opened = False
+            logger.info("EtherCAT 主站网口已关闭: interface=%s", self.ifname)
 
         self.slaves = []
         self.input_size = 0
         self.output_size = 0
         self.ifname = None
+        self.master = None
 
     def run(self):
         """启动后台 IO 线程"""

@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Package the project into a 7z archive one directory above the repo."""
+"""Package the project into a 7z archive next to this script."""
 
 import os
 import subprocess
-import sys
 
 
 def main() -> int:
-    current_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    current_dir = os.path.abspath(os.path.join(script_dir, ".."))
     parent_dir = os.path.dirname(current_dir)
     folder_name = os.path.basename(current_dir)
-    output_path = os.path.join(parent_dir, f"{folder_name}.7z")
+    output_path = os.path.join(script_dir, f"{folder_name}.7z")
 
     print(f"Packing directory: {current_dir}")
     print(f"Output archive: {output_path}")
@@ -23,6 +23,7 @@ def main() -> int:
         "-xr!.git",
         "-xr!logs",
         "-xr!__pycache__",
+        "-xr!*.7z",
         f"-x!{folder_name}/lib/LHandProLib.dll",
     ]
 

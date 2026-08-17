@@ -13,7 +13,10 @@ except ImportError:
     curses = None
 
 
-EXAMPLES_DIR = "aarch64/share/LHandProLib/examples"
+# 固定工作目录到脚本所在位置，避免从其他目录执行时相对路径失效
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+EXAMPLES_DIR = os.path.join(SCRIPT_DIR, "aarch64", "share", "LHandProLib", "examples")
 DEMO_DIR = os.path.join(EXAMPLES_DIR, "RaspberryPiDemo")
 CONFIG_DIR = os.path.join(DEMO_DIR, "configs")
 ACTIVE_CONFIG_FILE = os.path.join(DEMO_DIR, "active_config.py")
@@ -109,7 +112,7 @@ def load_preset_metadata(file_path):
 
 
 def step1_select_sdk(stdscr):
-    sdk_files = sorted(glob.glob("LHandProLib-API-Linux-*.tar.gz"))
+    sdk_files = sorted(glob.glob(os.path.join(SCRIPT_DIR, "LHandProLib-API-Linux-*.tar.gz")))
     if not sdk_files:
         show_message(stdscr, "错误", "未找到 LHandProLib-API-Linux-*.tar.gz 文件")
         sys.exit(1)
@@ -139,6 +142,22 @@ def step2_extract_sdk(stdscr, sdk_file):
         stderr=subprocess.DEVNULL,
     )
 
+    # 将 SDK 的动态库复制到系统库目录 /usr/local/lib，
+    # 与 lhandprolib_loader._find_library() 的搜索路径（/usr/local/lib）对应
+    so_src = os.path.join(SCRIPT_DIR, "aarch64", "lib", "libLHandProLib.so")
+    if not os.path.isfile(so_src):
+        show_message(stdscr, "错误", f"解压后未找到 {so_src}，请检查 SDK 包结构")
+        sys.exit(1)
+
+    stdscr.addstr(4, 0, f"正在复制 libLHandProLib.so 到 /usr/local/lib ...")
+    stdscr.refresh()
+    subprocess.run(
+        f"echo 'leadshine' | sudo -S install -m 644 '{so_src}' /usr/local/lib/",
+        shell=True,
+        check=True,
+        stderr=subprocess.DEVNULL,
+    )
+
 
 def step3_clean_examples(stdscr):
     if not os.path.isdir(EXAMPLES_DIR):
@@ -158,7 +177,7 @@ def step3_clean_examples(stdscr):
 
 
 def step4_extract_demo(stdscr):
-    demo_file = "RaspberryPiDemo.7z"
+    demo_file = os.path.join(SCRIPT_DIR, "RaspberryPiDemo.7z")
     if not os.path.isfile(demo_file):
         show_message(stdscr, "错误", f"文件不存在: {demo_file}")
         sys.exit(1)
@@ -281,6 +300,10 @@ def main():
     if curses is None:
         print("setup.py requires curses support and should be run on the target Linux device.")
         sys.exit(1)
+
+    # 无论从哪个目录执行，都切到脚本所在目录，
+    # 保证 tar 解压落点、7z/glob 等相对操作一致
+    os.chdir(SCRIPT_DIR)
 
     try:
         curses.wrapper(main_wrapper)
