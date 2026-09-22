@@ -2,9 +2,11 @@
 
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
+from pathlib import Path
 
 import active_config
 from gpio_controller import GPIO_PINS
@@ -29,74 +31,31 @@ FEEDBACK_DIGIT_POSITIONS = {
     9: [0, 8000, 4000, 10000, 10000, 10000],
 }
 
-CONFIG_PRESETS = [
-    {
-        "module": "configs.config_runtime_default",
-        "feedback_id": 0,
-    },
-    {
-        "module": "configs.config_DH116S_CANFD_aging",
-        "feedback_id": 1,
-    },
-    {
-        "module": "configs.config_DH116S_CANFD_grasp_aging",
-        "feedback_id": 2,
-    },
-    {
-        "module": "configs.config_DH116S_CANFD_gesture_aging",
-        "feedback_id": 3,
-    },
-    {
-        "module": "configs.config_DH116S_ECAT_aging",
-        "feedback_id": 4,
-    },
-    {
-        "module": "configs.config_DH116S_ECAT_grasp_aging",
-        "feedback_id": 5,
-    },
-    {
-        "module": "configs.config_DH116S_ECAT_gesture_aging",
-        "feedback_id": 6,
-    },
-    {
-        "module": "configs.config_DH116S_RS485_aging",
-        "feedback_id": 7,
-    },
-    {
-        "module": "configs.config_DH116S_RS485_grasp_aging",
-        "feedback_id": 8,
-    },
-    {
-        "module": "configs.config_DH116S_RS485_gesture_aging",
-        "feedback_id": 9,
-    },
-    {
-        "module": "configs.config_DH116_CANFD_aging",
-        "feedback_id": 10,
-    },
-    {
-        "module": "configs.config_DH116_CANFD_grasp_aging",
-        "feedback_id": 11,
-    },
-    {
-        "module": "configs.config_DH116_ECAT_aging",
-        "feedback_id": 12,
-    },
-    {
-        "module": "configs.config_DH116_ECAT_grasp_aging",
-        "feedback_id": 13,
-    },
-    {
-        "module": "configs.config_DH116_RS485_aging",
-        "feedback_id": 14,
-    },
-    {
-        "module": "configs.config_DH116_RS485_grasp_aging",
-        "feedback_id": 15,
-    },
-]
-
 ACTIVE_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "active_config.py")
+DEFAULT_PRESET_MODULE = "configs.config_runtime_default"
+
+
+def discover_config_presets(configs_dir=None) -> list:
+    """Scan configs/ and build the switchable preset list.
+
+    `config_runtime_default` always stays first (long-press target). Remaining
+    `config_*.py` modules are included in sorted order so feedback_id is stable.
+    Power-cycle presets are kept: field staff may still want them on the button.
+    """
+    root = Path(configs_dir or Path(__file__).resolve().parent / "configs")
+    modules = [DEFAULT_PRESET_MODULE]
+    for path in sorted(root.glob("config_*.py")):
+        module = f"configs.{path.stem}"
+        if module != DEFAULT_PRESET_MODULE:
+            modules.append(module)
+
+    return [
+        {"module": module, "feedback_id": index}
+        for index, module in enumerate(modules)
+    ]
+
+
+CONFIG_PRESETS = discover_config_presets()
 
 
 def _find_current_index():
@@ -107,21 +66,21 @@ def _find_current_index():
     return 0
 
 
-def write_active_config(preset_module):
-    import re
-
-    with open(ACTIVE_CONFIG_FILE, "r", encoding="utf-8") as file_obj:
-        content = file_obj.read()
-
-    new_content = re.sub(
-        r"^ACTIVE_PRESET\s*=.*$",
-        f'ACTIVE_PRESET = "{preset_module}"',
-        content,
-        flags=re.MULTILINE,
+def write_active_config(preset_module, device_overrides=None):
+    """Rewrite active_config.py from a full template (no fragile regex edits)."""
+    overrides = device_overrides if device_overrides is not None else {"canfd_node_id": 1}
+    content = (
+        '"""Selects which preset is active at runtime."""\n'
+        '"""Default: config_runtime_default"""\n\n'
+        f'ACTIVE_PRESET = "{preset_module}"\n\n'
+        "RUNTIME_OVERRIDES = {\n"
+        f"    \"device\": {overrides},\n"
+        "}\n"
     )
-
-    with open(ACTIVE_CONFIG_FILE, "w", encoding="utf-8") as file_obj:
-        file_obj.write(new_content)
+    temp_path = f"{ACTIVE_CONFIG_FILE}.{os.getpid()}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as file_obj:
+        file_obj.write(content)
+    os.replace(temp_path, ACTIVE_CONFIG_FILE)
 
 
 def feedback_id_to_digits(feedback_id: int):
@@ -190,17 +149,13 @@ class ConfigSwitcher:
         self._execute_long_press()
 
     def _stop_motion_if_running(self):
-        if not self.motion_controller.runtime_state.running:
+        if not self.motion_controller.runtime_state.is_running():
             return
 
         logging.info("GPIO 触发: 切换配置 - 正在停止当前运动...")
-        self.motion_controller.runtime_state.stop()
-        self.motion_controller.session.controller.stop_motors()
-        elapsed = 0.0
-        while self.motion_controller.runtime_state.running and elapsed < 5.0:
-            time.sleep(0.1)
-            elapsed += 0.1
-
+        if not self.motion_controller.cycle_manager.wait_until_stopped():
+            logging.error("切换配置时循环运动停止超时")
+        self.motion_controller.session.stop_and_settle()
         self.motion_controller.glove_service.stop()
 
     def _start_timers(self):
@@ -224,7 +179,10 @@ class ConfigSwitcher:
             is_first_press = not self.in_switching_mode
             if not self.in_switching_mode:
                 self.in_switching_mode = True
-                logging.info("进入配置切换模式，30秒内无操作将自动应用并重启")
+                logging.info(
+                    "进入配置切换模式，%s秒内无操作将自动应用并重启",
+                    TIMEOUT_SECONDS,
+                )
 
             self._start_timers()
 
@@ -233,7 +191,7 @@ class ConfigSwitcher:
             preset = CONFIG_PRESETS[self.current_index]
 
         action = "当前预设" if is_first_press else "切换到预设"
-        logging.info(f"{action}: {preset['module']}")
+        logging.info("%s: %s", action, preset["module"])
         self._execute_feedback(preset)
 
     def _execute_long_press(self):
@@ -242,13 +200,16 @@ class ConfigSwitcher:
         with self._lock:
             if not self.in_switching_mode:
                 self.in_switching_mode = True
-                logging.info("进入配置切换模式，30秒内无操作将自动应用并重启")
+                logging.info(
+                    "进入配置切换模式，%s秒内无操作将自动应用并重启",
+                    TIMEOUT_SECONDS,
+                )
 
             self._start_timers()
             self.current_index = 0
             preset = CONFIG_PRESETS[0]
 
-        logging.info(f"长按触发，返回第一个预设: {preset['module']}")
+        logging.info("长按触发，返回第一个预设: %s", preset["module"])
         self._execute_feedback(preset)
 
     def _execute_feedback(self, preset):
@@ -288,7 +249,7 @@ class ConfigSwitcher:
         with self._lock:
             preset_module = CONFIG_PRESETS[self.current_index]["module"]
 
-        logging.info(f"5秒超时，正在写入预设: {preset_module}")
+        logging.info("%s秒超时，正在写入预设: %s", WRITE_TIMEOUT_SECONDS, preset_module)
         try:
             write_active_config(preset_module)
             logging.info("active_config.py 已更新")
@@ -296,7 +257,7 @@ class ConfigSwitcher:
             logging.exception("写入 active_config.py 失败: %s", e)
 
     def _on_timeout(self):
-        logging.info("30秒超时，正在清理资源并重启...")
+        logging.info("%s秒超时，正在清理资源并重启...", TIMEOUT_SECONDS)
 
         try:
             self.motion_controller._cleanup()
@@ -310,8 +271,8 @@ class ConfigSwitcher:
             capture_output=True,
             text=True,
         )
-        logging.info(f"shutdown returncode={result.returncode}")
+        logging.info("shutdown returncode=%s", result.returncode)
         if result.stdout:
-            logging.info(f"shutdown stdout: {result.stdout.strip()}")
+            logging.info("shutdown stdout: %s", result.stdout.strip())
         if result.stderr:
-            logging.error(f"shutdown stderr: {result.stderr.strip()}")
+            logging.error("shutdown stderr: %s", result.stderr.strip())

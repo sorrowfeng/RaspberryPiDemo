@@ -8,7 +8,7 @@ import os
 import sys
 
 from active_config import ACTIVE_PRESET
-from config import CONFIG_LOAD_ERROR, DEFAULT_COMMUNICATION_MODE
+from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR
 from log import setup_logging
 from main_runtime_control import (
     DEFAULT_CONTROL_TIMEOUT,
@@ -104,7 +104,7 @@ def main():
 
     if args.start_cycle_existing or args.stop_cycle_existing:
         action = "start_cycle" if args.start_cycle_existing else "stop_cycle"
-        communication_mode = args.communication_mode or DEFAULT_COMMUNICATION_MODE
+        communication_mode = args.communication_mode or COMMUNICATION_CONFIG["default_mode"]
         setup_logging(
             app_name=f"main_control_{action}_{communication_mode}",
             communication_mode=communication_mode,

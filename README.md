@@ -40,13 +40,13 @@ RaspberryPiDemo/
 from config import DEFAULT_COMMUNICATION_MODE, MOTION_CONFIG, GRASP_CONFIG
 ```
 
-`config.py` 会自动读取 [active_config.py](/D:/Project/PyProject/RaspberryPiDemo/active_config.py) 中指定的 preset，并加载对应 sequence。
+`config.py` 会自动读取 [active_config.py](active_config.py) 中指定的 preset，并加载对应 sequence。
 
 ## 切换当前配置
 
 ### 方式 1：手动编辑
 
-修改 [active_config.py](/D:/Project/PyProject/RaspberryPiDemo/active_config.py)：
+修改 [active_config.py](active_config.py)：
 
 ```python
 ACTIVE_PRESET = "configs.config_DH116S_CANFD_grasp_aging"
@@ -113,7 +113,7 @@ sudo python3 launch.py -m ECAT -n 1
 sudo python3 launch.py -m RS485 -n 4
 ```
 
-`launch.py` 会读取 [config.py](/D:/Project/PyProject/RaspberryPiDemo/config.py) 导出的默认值，也支持命令行覆盖。
+`launch.py` 会读取 [config.py](config.py) 导出的默认值，也支持命令行覆盖。
 
 ## 辅助脚本
 
@@ -128,4 +128,5 @@ python3 tools/pack.py
 
 - 新增机型/场景时，优先新增一个 `configs/config_*.py` preset
 - 如果动作很多，不要继续塞进 preset，直接新增 `sequences/*.py`
-- 业务运行代码继续只依赖 [config.py](/D:/Project/PyProject/RaspberryPiDemo/config.py)，不要直接读取 preset 或 sequence 文件
+- 业务运行代码只依赖 `config.py` 的结构化配置（`COMMUNICATION_CONFIG` / `DEVICE_CONFIG` / `MOTION_CONFIG` / `GRASP_CONFIG` / `FEATURE_FLAGS`），不要直接读取 preset 或 sequence 文件
+- 平铺的全大写常量仅供旧脚本兼容，新代码不要再用

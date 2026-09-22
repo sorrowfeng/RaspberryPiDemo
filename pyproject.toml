@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raspberry-pi-demo"
+version = "0.1.0"
+description = "LHandPro Raspberry Pi control / aging demo (CANFD / ECAT / RS485)"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+  "keyboard~=0.13.5",
+  "pysoem~=1.1.12",
+  "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+pi = ["RPi.GPIO>=0.7.0"]
+dev = ["pytest>=7"]
+
+[project.scripts]
+rpd-main = "main:main"
+rpd-launch = "launch:main"
+
+[tool.setuptools]
+py-modules = [
+  "active_config", "config", "config_support", "config_switcher",
+  "canfd_lib", "ethercat_master", "gpio_controller", "lhandpro_controller",
+  "lhandprolib_loader", "lhandprolib_wrapper", "log", "main", "main_lifecycle",
+  "main_power_cycle", "main_runtime_control", "serial_port", "udp_receiver",
+]
+packages = ["configs", "sequences", "motion_system", "tools"]

@@ -99,7 +99,7 @@ class UDPReceiver:
             # 发送一个空数据包到自己以唤醒阻塞的recvfrom调用
             try:
                 socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(b'', (self.host, self.port))
-            except:
+            except Exception:
                 pass
             
         if self.socket:

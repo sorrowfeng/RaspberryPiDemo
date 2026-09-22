@@ -58,7 +58,7 @@ class EthercatMaster:
             'isatap'     # ISATAP隧道
         ]
 
-        print("🔍 检测到以下物理网卡：")
+        logger.info("检测到以下物理网卡")
         filtered_adapters = []
         
         for adapter in adapters:
@@ -80,20 +80,20 @@ class EthercatMaster:
             else:
                 desc = str(adapter.desc)
             
-            print(f"  【{len(filtered_adapters)}】{desc}")
+            logger.info("[%s] %s", len(filtered_adapters), desc)
             filtered_adapters.append(adapter)
         
         # 如果所有接口都被过滤掉了
         if not filtered_adapters:
             logger.warning("未找到可用的物理网卡")
             # 可选：显示被过滤的接口用于调试
-            print("  被过滤的接口:")
+            logger.info("被过滤的接口")
             for adapter in adapters:
                 if isinstance(adapter.name, bytes):
                     name = adapter.name.decode('utf-8', errors='ignore')
                 else:
                     name = str(adapter.name)
-                print(f"    - {adapter.desc} ({name})")
+                logger.info("  - %s (%s)", adapter.desc, name)
         
         return [adapter.name if isinstance(adapter.name, str) else 
                 adapter.name.decode('utf-8', errors='ignore') 
@@ -160,7 +160,7 @@ class EthercatMaster:
         initialized = False
         try:
             self.ifname = ifaces[channel_index]
-            print(f"🔌 正在初始化 EtherCAT 主站，使用网口: {self.ifname}")
+            logger.info("正在初始化 EtherCAT 主站，使用网口: %s", self.ifname)
             retry_interval = max(0.0, float(discovery_retry_interval_seconds or 0.0))
             attempt = 0
 
@@ -246,20 +246,20 @@ class EthercatMaster:
                 time.sleep(retry_delay)
 
             self.slaves = self.master.slaves
-            print(f"✅ 发现 {len(self.slaves)} 个从站设备")
+            logger.info("发现 %s 个从站设备", len(self.slaves))
             for i, slave in enumerate(self.slaves):
-                print(f"  Slave {i}: {slave.name} (Vendor: {hex(slave.man)}, Product: {hex(slave.id)})")
+                logger.info("  Slave %s: %s (Vendor: %s, Product: %s)", i, slave.name, hex(slave.man), hex(slave.id))
 
             # 映射过程数据
             self.master.config_map()
-            print("✅ PDO 缓冲区映射完成")
+            logger.info("PDO 缓冲区映射完成")
 
             # 配置分布式时钟（DC）
             self.master.config_dc()
-            print("✅ 分布式时钟(DC)配置完成")
+            logger.info("分布式时钟(DC)配置完成")
 
             # 等待进入 SAFEOP 状态
-            print("⏳ 等待从站进入 SAFEOP 状态...")
+            logger.info("等待从站进入 SAFEOP 状态...")
             if self.master.state_check(pysoem.SAFEOP_STATE, 50000) != pysoem.SAFEOP_STATE:
                 self._print_slave_states()
                 logger.error("EtherCAT 未能进入 SAFEOP_STATE: interface=%s", self.ifname)
@@ -270,7 +270,7 @@ class EthercatMaster:
             self.master.receive_processdata(1000)
 
             # 进入 OP 状态
-            print("🚀 正在切换到 OP 状态...")
+            logger.info("正在切换到 OP 状态...")
             self.master.state = pysoem.OP_STATE
             self.master.write_state()
 
@@ -287,14 +287,14 @@ class EthercatMaster:
                 logger.error("EtherCAT 未能进入 OP_STATE: interface=%s", self.ifname)
                 return False
 
-            print("✅ 成功进入 OP 状态")
+            logger.info("成功进入 OP 状态")
 
             # 获取输入输出缓冲区大小
             self.input_size = sum(len(slave.input) for slave in self.slaves)
             self.output_size = sum(len(slave.output) for slave in self.slaves)
 
-            print(f"📊 输入总长度: {self.input_size} 字节")
-            print(f"📊 输出总长度: {self.output_size} 字节")
+            logger.info("输入总长度: %s 字节", self.input_size)
+            logger.info("输出总长度: %s 字节", self.output_size)
 
             # 初始化输出缓冲区
             for slave in self.slaves:

@@ -15,7 +15,7 @@ Each preset file now contains:
 - which sequence files should be used for cycle / grasp repeat / hold grip / hold release
 - feature flags
 
-Preset files no longer embed long motion arrays directly. Those sequences now live in [sequences](/D:/Project/PyProject/RaspberryPiDemo/sequences).
+Preset files no longer embed long motion arrays directly. Those sequences now live in [sequences](../sequences).
 
 Typical naming rule:
 
@@ -25,4 +25,4 @@ Typical naming rule:
   - `config_DH116S_CANFD_grasp.py`
   - `config_Module_ECAT_aging.py`
 
-The active preset is selected from [active_config.py](/D:/Project/PyProject/RaspberryPiDemo/active_config.py).
+The active preset is selected from [active_config.py](../active_config.py).

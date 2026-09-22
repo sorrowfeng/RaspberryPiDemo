@@ -1,6 +1,7 @@
 import logging
+import time
 
-from config import DEFAULT_HOME_TIME, RS485_PORT_NAME
+from config import DEVICE_CONFIG, MOTION_CONFIG
 from gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
 from lhandpro_controller import LHandProController
 
@@ -18,7 +19,9 @@ class DeviceSession:
         self.controller = LHandProController(communication_mode=communication_mode)
         self.device_index = device_index
         self.rs485_port_name = (
-            rs485_port_name if rs485_port_name is not None else RS485_PORT_NAME
+            rs485_port_name
+            if rs485_port_name is not None
+            else DEVICE_CONFIG["rs485_port_name"]
         )
         self.gpio = None
         self.enable_gpio = self._initialize_gpio(enable_gpio)
@@ -36,7 +39,7 @@ class DeviceSession:
             self.gpio = GPIOController()
             return True
         except RuntimeError as exc:
-            logging.warning(f"GPIO 初始化失败，GPIO 功能已自动禁用: {exc}")
+            logging.warning("GPIO 初始化失败，GPIO 功能已自动禁用: %s", exc)
             return False
 
     @staticmethod
@@ -51,23 +54,25 @@ class DeviceSession:
         connect_retry_interval_seconds: float = 0.0,
         connect_deadline_monotonic=None,
     ) -> bool:
+        home_time = MOTION_CONFIG["default_home_time"]
         logging.info(
             "准备连接设备: mode=%s, device_index=%s, rs485_port=%s, home_wait_time=%s",
             self.controller.communication_mode,
             self.device_index,
             self.rs485_port_name,
-            DEFAULT_HOME_TIME,
+            home_time,
         )
         return self.controller.connect(
             enable_motors=True,
             home_motors=True,
-            home_wait_time=DEFAULT_HOME_TIME,
+            home_wait_time=home_time,
             device_index=self.device_index,
             auto_select=self.device_index is None,
             rs485_port_name=self.rs485_port_name,
             on_home_start=on_home_start,
             ecat_connect_retry_interval_seconds=connect_retry_interval_seconds,
             ecat_connect_deadline_monotonic=connect_deadline_monotonic,
+            non_interactive=True,
         )
 
     def disconnect(self):
@@ -77,6 +82,13 @@ class DeviceSession:
         logging.info("正在移动到零位置...")
         self.controller.move_to_zero(velocity=20000, max_current=1000, wait_time=2.0)
         logging.info("已回到零位置")
+
+    def stop_and_settle(self):
+        """停止电机并给总线一点时间落地，避免紧接着断开导致指令被截断。"""
+        if not self.controller.is_connected:
+            return
+        self.controller.stop_motors()
+        time.sleep(0.1)
 
     def set_ready_status(self):
         if self.enable_gpio and self.gpio:
@@ -101,7 +113,7 @@ class DeviceSession:
 
     def pulse_cycle_complete(self):
         if self.enable_gpio and self.gpio:
-            logging.info(f"输出循环完成信号: GPIO {self.cycle_complete_pin}")
+            logging.info("输出循环完成信号: GPIO %s", self.cycle_complete_pin)
             self.gpio.output_pulse(self.cycle_complete_pin, duration=0.5)
 
     def cleanup_gpio(self):

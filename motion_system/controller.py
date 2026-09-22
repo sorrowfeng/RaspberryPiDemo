@@ -4,7 +4,7 @@ import time
 
 import keyboard
 
-from config import AUTO_CONNECT, AUTO_CYCLE_RUNNING
+from config import FEATURE_FLAGS
 from gpio_controller import GPIO_PINS
 from main_runtime_control import (
     complete_control_command,
@@ -18,7 +18,7 @@ try:
 except ImportError:
     GPIO = None
 
-from config_switcher import ConfigSwitcher
+from config_switcher import TIMEOUT_SECONDS, ConfigSwitcher
 from .cycle_motion_manager import CycleMotionManager
 from .device_session import DeviceSession
 from .glove_listener_service import GloveListenerService
@@ -44,7 +44,7 @@ class MotionController:
         )
         self.runtime_state = MotionRuntimeState()
         self.cycle_manager = CycleMotionManager(self.session, self.runtime_state)
-        self.grasp_manager = GraspManager(self.session, self.runtime_state)
+        self.grasp_manager = GraspManager(self.session, self.runtime_state, self.cycle_manager)
         self.glove_service = GloveListenerService(self.session)
         self.config_switcher = ConfigSwitcher(self)
         self.shutdown_requested = threading.Event()
@@ -68,8 +68,7 @@ class MotionController:
 
         if self.session.controller.is_connected:
             logging.info("设备已连接，先停止并断开后重新初始化")
-            self.session.controller.stop_motors()
-            time.sleep(0.1)
+            self.session.stop_and_settle()
             self.session.disconnect()
             self.session.set_disconnected_status()
 
@@ -123,8 +122,7 @@ class MotionController:
         self.glove_service.stop()
 
         if self.session.controller.is_connected:
-            self.session.controller.stop_motors()
-            time.sleep(0.1)
+            self.session.stop_and_settle()
 
         # disconnect() 可重复调用，也会清理“连接标志尚未置位”时残留的部分初始化资源。
         self.session.disconnect()
@@ -199,7 +197,11 @@ class MotionController:
         )
 
         edge_name = self.grasp_manager.get_gpio_edge_name()
-        logging.info(f"[DEBUG] 抓握模式: {self.grasp_manager.mode}, GPIO 边沿设置: {edge_name}")
+        logging.info(
+            "抓握模式: %s, GPIO 边沿设置: %s",
+            self.grasp_manager.mode,
+            edge_name,
+        )
         self.session.gpio.setup_input(
             GPIO_PINS.START_GRASP,
             callback=self.on_start_grasp,
@@ -251,8 +253,7 @@ class MotionController:
             return
         self.glove_service.stop()
         if self.session.controller.is_connected:
-            self.session.controller.stop_motors()
-            time.sleep(0.1)
+            self.session.stop_and_settle()
         self.session.disconnect()
         self.session.set_disconnected_status()
         logging.info("设备已断开")
@@ -268,26 +269,31 @@ class MotionController:
         if managed_control:
             logging.info("  主电源托管模式：GPIO 业务输入已禁用")
         else:
-            logging.info(f"  GPIO {GPIO_PINS.START_MOTION}: 开始循环运动")
-            logging.info(f"  GPIO {GPIO_PINS.STOP_MOTION}: 停止运动并回零")
-            logging.info(f"  GPIO {GPIO_PINS.CONNECT}: 连接设备")
-            logging.info(f"  GPIO {GPIO_PINS.DISCONNECT}: 断开设备")
-            logging.info(f"  GPIO {GPIO_PINS.START_GLOVE_LISTEN}: 开始手套监听")
-            logging.info(f"  GPIO {GPIO_PINS.SWITCH_CONFIG}: 切换配置预设（短按切换下一个，长按1.5秒返回第一个，60秒无操作自动应用并重启）")
-        logging.info(f"  GPIO {self.session.cycle_complete_pin}: 循环完成信号输出")
-        logging.info(f"  GPIO {GPIO_PINS.STATUS_LED}: 状态 LED 输出")
+            logging.info("  GPIO %s: 开始循环运动", GPIO_PINS.START_MOTION)
+            logging.info("  GPIO %s: 停止运动并回零", GPIO_PINS.STOP_MOTION)
+            logging.info("  GPIO %s: 连接设备", GPIO_PINS.CONNECT)
+            logging.info("  GPIO %s: 断开设备", GPIO_PINS.DISCONNECT)
+            logging.info("  GPIO %s: 开始手套监听", GPIO_PINS.START_GLOVE_LISTEN)
+            logging.info(
+                "  GPIO %s: 切换配置预设（短按切换下一个，长按1.5秒返回第一个，"
+                "%s秒无操作自动应用并重启）",
+                GPIO_PINS.SWITCH_CONFIG,
+                int(TIMEOUT_SECONDS),
+            )
+        logging.info("  GPIO %s: 循环完成信号输出", self.session.cycle_complete_pin)
+        logging.info("  GPIO %s: 状态 LED 输出", GPIO_PINS.STATUS_LED)
         logging.info("\n按 Esc 键退出程序\n")
 
     def _setup_runtime(self, *, managed_control: bool = False):
         try:
             self.setup_gpio(enable_inputs=not managed_control)
         except Exception as exc:
-            logging.warning(f"GPIO 设置失败，GPIO 功能已禁用: {exc}")
+            logging.warning("GPIO 设置失败，GPIO 功能已禁用: %s", exc)
             self.session.enable_gpio = False
         self._log_gpio_summary(managed_control=managed_control)
 
     def _handle_auto_connect(self) -> int:
-        if not AUTO_CONNECT:
+        if not FEATURE_FLAGS["auto_connect"]:
             logging.info("自动连接已禁用，等待手动连接")
             if self.session.enable_gpio:
                 self.session.set_disconnected_status()
@@ -303,7 +309,7 @@ class MotionController:
 
         logging.info("设备自动连接成功")
         self.session.set_connected_status()
-        if AUTO_CYCLE_RUNNING:
+        if FEATURE_FLAGS["auto_cycle_running"]:
             logging.info("自动开始执行循环运动")
             self.on_start_motion()
         return 0
@@ -321,8 +327,7 @@ class MotionController:
         self.glove_service.stop()
         if self.session.controller.is_connected:
             logging.info("正在停止运动...")
-            self.session.controller.stop_motors()
-            time.sleep(0.1)
+            self.session.stop_and_settle()
         self.session.disconnect()
         self.session.set_disconnected_status()
         self.session.cleanup_gpio()

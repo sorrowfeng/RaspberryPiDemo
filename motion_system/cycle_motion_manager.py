@@ -2,62 +2,24 @@ import logging
 import threading
 import time
 
-from config import (
-    CYCLE_FINISH_POSITION,
-    DEFAULT_CYCLE_COUNT,
-    ENABLE_ALARM_CHECK,
-    MOTION_CONFIG,
-)
+from config import FEATURE_FLAGS, MOTION_CONFIG
 
 
 class CycleMotionManager:
     """Handles cyclic motion execution."""
 
-    MOTION_THREAD_JOIN_TIMEOUT = 2.0
+    # 停止请求后等待 worker 退出的时间。慢速大位移一步可能 >2s，超时会误报
+    # “线程未退出”，现场如见该错误可调大，或看是否卡在总线 IO。
+    MOTION_THREAD_JOIN_TIMEOUT = 5.0
 
     def __init__(self, session, runtime_state):
         self.session = session
         self.runtime_state = runtime_state
-        self.cycle_steps = self._normalize_cycle_move_positions(MOTION_CONFIG["cycle_move_positions"])
+        # 步骤已在 config_support.normalize_sequence 中补齐，无需二次归一化。
+        self.cycle_steps = MOTION_CONFIG["cycle_move_positions"]
         self.cycle_run_plan = MOTION_CONFIG["cycle_run_plan"]
         self._thread_lock = threading.Lock()
         self._motion_thread = None
-
-    @staticmethod
-    def _normalize_cycle_move_positions(cycle_move_positions):
-        normalized_positions = []
-        for index, step in enumerate(cycle_move_positions):
-            if isinstance(step, dict):
-                if "gesture_id" in step:
-                    normalized_positions.append({
-                        "gesture_id": int(step["gesture_id"]),
-                        "velocity": step.get("velocity", MOTION_CONFIG["default_cycle_velocity"]),
-                        "current": step.get("current", MOTION_CONFIG["default_cycle_current"]),
-                        "interval": step.get("interval", MOTION_CONFIG["default_cycle_interval"]),
-                    })
-                    continue
-
-                positions = step.get("positions")
-                velocities = step.get("velocities", MOTION_CONFIG["default_cycle_velocity"])
-                currents = step.get("currents", MOTION_CONFIG["default_cycle_current"])
-                interval = step.get("interval", MOTION_CONFIG["default_cycle_interval"])
-            else:
-                positions = step
-                velocities = MOTION_CONFIG["default_cycle_velocity"]
-                currents = MOTION_CONFIG["default_cycle_current"]
-                interval = MOTION_CONFIG["default_cycle_interval"]
-
-            if positions is None:
-                raise ValueError(f"CYCLE_MOVE_POSITIONS[{index}] missing positions")
-
-            normalized_positions.append({
-                "positions": positions,
-                "velocities": velocities,
-                "currents": currents,
-                "interval": interval,
-            })
-
-        return normalized_positions
 
     def _get_cycle_velocity_scale(self, cycle_index):
         elapsed_cycles = 0
@@ -146,8 +108,7 @@ class CycleMotionManager:
     def stop(self):
         if not self.wait_until_stopped():
             return False
-        self.session.controller.stop_motors()
-        time.sleep(0.1)
+        self.session.stop_and_settle()
         self.session.move_to_zero()
         self.session.set_ready_status()
         return True
@@ -156,10 +117,14 @@ class CycleMotionManager:
         logging.info("开始循环运动")
         try:
             cycle_count = 0
-            while not self.runtime_state.stop_flag.is_set() and cycle_count < DEFAULT_CYCLE_COUNT:
+            cycle_total = MOTION_CONFIG["default_cycle_count"]
+            while not self.runtime_state.stop_flag.is_set() and cycle_count < cycle_total:
                 velocity_scale = self._get_cycle_velocity_scale(cycle_count)
                 logging.info(
-                    f"cycle {cycle_count + 1}/{DEFAULT_CYCLE_COUNT}, velocity_scale={velocity_scale}"
+                    "cycle %s/%s, velocity_scale=%s",
+                    cycle_count + 1,
+                    cycle_total,
+                    velocity_scale,
                 )
 
                 for index, cycle_step in enumerate(self.cycle_steps):
@@ -167,7 +132,7 @@ class CycleMotionManager:
                         logging.info("循环运动被停止")
                         return
 
-                    if ENABLE_ALARM_CHECK and self.session.controller.get_alarm():
+                    if FEATURE_FLAGS["enable_alarm_check"] and self.session.controller.get_alarm():
                         logging.warning("检测到报警，循环运动停止")
                         return
 
@@ -178,6 +143,8 @@ class CycleMotionManager:
                             current=cycle_step["current"],
                         )
                         if success and cycle_step["interval"] > 0:
+                            # interval 是 scale=1 时的停留；速度缩放后到位耗时约
+                            # 1/scale 倍，等待同步放大，避免慢速段未到位就发下一步。
                             if self.runtime_state.stop_flag.wait(
                                 cycle_step["interval"] / velocity_scale
                             ):
@@ -191,29 +158,30 @@ class CycleMotionManager:
                             wait_time=0,
                         )
                         if success and cycle_step["interval"] > 0:
+                            # 同上：位置步的 interval 随 velocity_scale 反比放大。
                             if self.runtime_state.stop_flag.wait(
                                 cycle_step["interval"] / velocity_scale
                             ):
                                 logging.info("循环运动被停止")
                                 return
                     if not success:
-                        logging.warning(f"循环位置 {index} 执行失败")
+                        logging.warning("循环位置 %s 执行失败", index)
                         continue
 
                     if index == len(self.cycle_steps) - 1:
                         self.session.pulse_cycle_complete()
 
                 cycle_count += 1
-                logging.info(f"准备下一循环... ({cycle_count}/{DEFAULT_CYCLE_COUNT})")
+                logging.info("准备下一循环... (%s/%s)", cycle_count, cycle_total)
 
-            if cycle_count >= DEFAULT_CYCLE_COUNT:
+            if cycle_count >= cycle_total:
                 self.session.controller.move_to_positions_with_params(
-                    positions=CYCLE_FINISH_POSITION,
-                    velocities=MOTION_CONFIG["default_cycle_velocity"],
-                    max_currents=MOTION_CONFIG["default_cycle_current"],
+                    positions=MOTION_CONFIG["cycle_finish_position"],
+                    velocities=MOTION_CONFIG["default_cycle_velocities"],
+                    max_currents=MOTION_CONFIG["default_cycle_currents"],
                     wait_time=MOTION_CONFIG["default_cycle_interval"],
                 )
-                logging.info(f"已完成全部 {DEFAULT_CYCLE_COUNT} 次循环运动")
+                logging.info("已完成全部 %s 次循环运动", cycle_total)
         except Exception as exc:
             logging.exception("循环运动异常: %s", exc)
         finally:

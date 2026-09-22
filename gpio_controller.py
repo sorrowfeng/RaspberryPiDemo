@@ -24,7 +24,7 @@ def _is_raspberry_pi() -> bool:
         with open('/proc/cpuinfo', 'r') as f:
             cpuinfo = f.read()
             return 'Raspberry Pi' in cpuinfo or 'BCM' in cpuinfo
-    except:
+    except Exception:
         # 也可以通过平台架构判断
         machine = platform.machine().lower()
         return 'arm' in machine or 'aarch64' in machine
@@ -281,16 +281,16 @@ class GPIOController:
         for pin in self.output_pins.keys():
             try:
                 GPIO.output(pin, GPIO.LOW)
-            except:
+            except Exception:
                 pass
-        
+
         GPIO.cleanup()
         # 停止RGB PWM
         if self.rgb_pwm:
             for pwm in self.rgb_pwm:
                 try:
                     pwm.stop()
-                except:
+                except Exception:
                     pass
         self.input_pins.clear()
         self.output_pins.clear()

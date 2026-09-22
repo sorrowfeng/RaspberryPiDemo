@@ -1,5 +1,4 @@
 import logging
-import time
 
 from config import GRASP_CONFIG
 
@@ -7,9 +6,10 @@ from config import GRASP_CONFIG
 class GraspManager:
     """Handles grasp business logic."""
 
-    def __init__(self, session, runtime_state):
+    def __init__(self, session, runtime_state, cycle_manager):
         self.session = session
         self.runtime_state = runtime_state
+        self.cycle_manager = cycle_manager
         self.mode = GRASP_CONFIG["mode"]
         self.repeat_count = GRASP_CONFIG["repeat_count"]
         self.repeat_sequence = GRASP_CONFIG["repeat"]
@@ -23,7 +23,11 @@ class GraspManager:
         return gpio_module.BOTH if self.mode == "hold" else gpio_module.RISING
 
     def on_start_grasp(self):
-        logging.info(f"[DEBUG] on_start_grasp called, mode={self.mode}")
+        logging.info("抓握触发: mode=%s", self.mode)
+        if not self.cycle_manager.wait_until_stopped():
+            logging.error("循环运动线程停止超时，取消本次抓握")
+            return
+        self.session.stop_and_settle()
         if self.mode == "hold":
             self._run_hold_grasp()
         else:
@@ -37,26 +41,22 @@ class GraspManager:
         from gpio_controller import GPIO_PINS
 
         is_triggered = self.session.gpio.read_input(GPIO_PINS.START_GRASP)
-        logging.info(f"[DEBUG] GPIO START_GRASP state: {is_triggered}")
+        logging.info("GPIO START_GRASP state: %s", is_triggered)
 
         sequence = self.grip_sequence if is_triggered else self.release_sequence
         sequence_name = "grip" if is_triggered else "release"
         self._execute_sequence(sequence, sequence_name)
 
     def _run_repeat_grasp(self):
-        logging.info(f"start repeat grasp, count={self.repeat_count}")
+        logging.info("start repeat grasp, count=%s", self.repeat_count)
 
-        with self.runtime_state.lock:
-            if self.runtime_state.running:
-                logging.info("cycle motion is running, stopping it before repeat grasp")
-                self.runtime_state.stop_flag.set()
-                time.sleep(0.5)
-            self.runtime_state.stop_flag.clear()
-            self.runtime_state.running = True
+        if not self.runtime_state.start():
+            logging.info("motion already running, skip repeat grasp")
+            return
 
         try:
             for cycle in range(self.repeat_count):
-                logging.info(f"[DEBUG] repeat grasp cycle {cycle + 1}/{self.repeat_count}")
+                logging.info("repeat grasp cycle %s/%s", cycle + 1, self.repeat_count)
                 for index, step in enumerate(self.repeat_sequence["steps"]):
                     if self.runtime_state.stop_flag.is_set():
                         logging.info("repeat grasp stopped")
@@ -64,7 +64,7 @@ class GraspManager:
 
                     success = self._execute_step(step)
                     if not success:
-                        logging.warning(f"repeat grasp step {index + 1} failed")
+                        logging.warning("repeat grasp step %s failed", index + 1)
 
             logging.info("repeat grasp completed")
             self.session.move_to_zero()
@@ -79,7 +79,7 @@ class GraspManager:
                 current=step["current"],
             )
             if success and step["interval"] > 0:
-                time.sleep(step["interval"])
+                self.runtime_state.stop_flag.wait(step["interval"])
             return success
 
         return self.session.controller.move_to_positions_with_params(
@@ -91,20 +91,28 @@ class GraspManager:
 
     def _execute_sequence(self, sequence, name):
         if not self.session.controller.is_connected:
-            logging.warning(f"device not connected, skip grasp sequence: {name}")
+            logging.warning("device not connected, skip grasp sequence: %s", name)
             return
 
         steps = sequence["steps"]
         for index, step in enumerate(steps):
             if "gesture_id" in step:
                 logging.info(
-                    f"[DEBUG] {name} step {index + 1}/{len(steps)}: gesture_id={step['gesture_id']}"
+                    "%s step %s/%s: gesture_id=%s",
+                    name,
+                    index + 1,
+                    len(steps),
+                    step["gesture_id"],
                 )
             else:
                 logging.info(
-                    f"[DEBUG] {name} step {index + 1}/{len(steps)}: positions={step['positions']}"
+                    "%s step %s/%s: positions=%s",
+                    name,
+                    index + 1,
+                    len(steps),
+                    step["positions"],
                 )
             success = self._execute_step(step)
-            logging.info(f"[DEBUG] {name} step {index + 1} result: success={success}")
+            logging.info("%s step %s result: success=%s", name, index + 1, success)
             if not success:
-                logging.warning(f"{name} step {index + 1} move failed")
+                logging.warning("%s step %s move failed", name, index + 1)

@@ -42,8 +42,13 @@ from serial_port import SerialPort
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
-SEND_DRAIN_SECONDS = 0.1
-POWER_COMMAND_WRITE_TIMEOUT_SECONDS = 2.0
+from power_cycle_runtime import (  # noqa: E402
+    POWER_COMMAND_WRITE_TIMEOUT_SECONDS,
+    SEND_DRAIN_SECONDS,
+    PowerCyclePhase,
+    pick_serial_port,
+    sleep_until as _sleep_until,
+)
 MAIN_START_COUNT_PULSE_SECONDS = 0.5
 MANAGED_START_COMMAND_SPACING_SECONDS = 1.0
 logger = logging.getLogger(__name__)
@@ -168,7 +173,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def select_port(serial_port: SerialPort) -> str:
+def select_port(serial_port: SerialPort, *, non_interactive: bool = False) -> str:
     ports = serial_port.scan_available_ports()
     if not ports:
         raise RuntimeError("未找到可用串口")
@@ -871,6 +876,7 @@ def run_power_cycle_loop(
 
 
 def main() -> int:
+    # 配置/序列均为相对导入，固定到工程根目录，避免 systemd 工作目录不同。
     os.chdir(BASE_DIR)
     args = parse_args()
     setup_logging(

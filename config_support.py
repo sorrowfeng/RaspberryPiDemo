@@ -176,9 +176,12 @@ def build_runtime_configuration(
     motion_config = {
         "default_home_time": preset["motion"]["default_home_time"],
         "default_cycle_count": preset["motion"]["default_cycle_count"],
+        # 标量字段保留给 legacy 平铺导出；完整逐轴列表用 *_velocities / *_currents。
         "default_cycle_velocity": cycle_sequence["default_velocities"][0],
+        "default_cycle_velocities": cycle_sequence["default_velocities"],
         "default_cycle_interval": cycle_sequence["default_interval"],
         "default_cycle_current": cycle_sequence["default_currents"][0],
+        "default_cycle_currents": cycle_sequence["default_currents"],
         "cycle_run_plan": normalize_cycle_run_plan(preset["motion"]),
         "cycle_move_positions": cycle_sequence["steps"],
         "cycle_finish_position": list(preset["motion"]["cycle_finish_position"]),
@@ -213,7 +216,11 @@ def export_legacy_config(
     grasp_config: Dict[str, Any],
     feature_flags: Dict[str, Any],
 ) -> None:
-    """Populate backward-compatible flat exports for existing imports."""
+    """Populate backward-compatible flat exports for existing imports.
+
+    Deprecated: prefer structured dicts (COMMUNICATION_CONFIG / DEVICE_CONFIG /
+    MOTION_CONFIG / GRASP_CONFIG / FEATURE_FLAGS) instead of these aliases.
+    """
 
     repeat_sequence = grasp_config["repeat"]
     grip_sequence = grasp_config["hold"]["grip"]

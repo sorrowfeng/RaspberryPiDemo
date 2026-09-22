@@ -19,9 +19,12 @@ class MotionRuntimeState:
 
     def stop(self):
         with self.lock:
-            self.running = False
             self.stop_flag.set()
 
     def mark_idle(self):
         with self.lock:
             self.running = False
+
+    def is_running(self) -> bool:
+        with self.lock:
+            return self.running
