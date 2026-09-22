@@ -24,9 +24,9 @@ rpd-launch = "launch:main"
 
 [tool.setuptools]
 py-modules = [
-  "active_config", "config", "config_support", "config_switcher",
+  "active_config", "config", "config_support", "config_models", "config_switcher",
   "canfd_lib", "ethercat_master", "gpio_controller", "lhandpro_controller",
   "lhandprolib_loader", "lhandprolib_wrapper", "log", "main", "main_lifecycle",
-  "main_power_cycle", "main_runtime_control", "serial_port", "udp_receiver",
+  "main_power_cycle", "main_runtime_control", "serial_port", "udp_receiver", "power_cycle_runner", "power_cycle_runtime",
 ]
 packages = ["configs", "sequences", "motion_system", "tools"]

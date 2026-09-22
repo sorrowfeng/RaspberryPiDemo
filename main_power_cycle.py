@@ -42,6 +42,7 @@ from serial_port import SerialPort
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
+from power_cycle_runner import CleanupOutcome, PowerCyclePhase, PowerCycleRunner
 from power_cycle_runtime import (  # noqa: E402
     POWER_COMMAND_WRITE_TIMEOUT_SECONDS,
     SEND_DRAIN_SECONDS,
@@ -478,7 +479,13 @@ def stop_motion_then_power_off(
     *,
     terminate_processes: bool = False,
     planned_power_off_at=None,
-):
+    runner=None,  # Optional[PowerCycleRunner]
+) -> "tuple[bool, float | None]":
+    """停止运动/断开通信后物理断电。
+
+    返回 (cleanup_succeeded, power_off_at)，兼容原调用点解包。
+    使用 PowerCycleRunner 的阶段记录清理过程。
+    """
     cleanup_started_at = time.monotonic()
     logger.info(
         "%s: 开始物理断电前清理，先停止运动并断开通信连接",
@@ -489,6 +496,21 @@ def stop_motion_then_power_off(
         getattr(args, "force_off_at_deadline", False)
         and planned_power_off_at is not None
     )
+
+    phases = runner.history if runner is not None else []
+
+    def _phase(note: str) -> None:
+        entry = f"cleanup:{note}"
+        phases.append(entry)
+        logger.info("电源通断阶段: %s (%s)", entry, cycle_label)
+        if runner is not None:
+            try:
+                if runner.phase in (PowerCyclePhase.RUNNING, PowerCyclePhase.CONNECTING):
+                    runner._transition(PowerCyclePhase.CLEANUP, note)
+            except Exception:
+                pass
+
+    _phase("stop motion / disconnect")
 
     try:
         command_stopped = request_managed_motion_stop(
@@ -528,9 +550,6 @@ def stop_motion_then_power_off(
                 cycle_label,
             )
 
-    # A hard physical power-off deadline takes precedence over waiting for the
-    # long-running process to exit.  The caller's finally block will still stop
-    # the process after this function has sent the power-off command.
     if terminate_processes and not force_off_at_deadline:
         logger.info("%s: 退出流程需要终止长驻 main.py 进程", cycle_label)
         if processes_stopped is not True:
@@ -605,11 +624,19 @@ def stop_motion_then_power_off(
             cycle_label,
         )
 
+    _phase("power off")
     try:
         power_off_at = send_command(serial_port, POWER_OFF_COMMAND, "断电")
     except Exception as exc:
         logger.exception("%s: 断电指令发送失败: %s", cycle_label, exc)
         return False, None
+
+    if runner is not None:
+        try:
+            if runner.phase == PowerCyclePhase.CLEANUP:
+                runner._transition(PowerCyclePhase.POWER_OFF, cycle_label)
+        except Exception:
+            pass
 
     return cleanup_succeeded, power_off_at
 
@@ -645,6 +672,16 @@ def run_power_cycle_loop(
             args.disconnect_lead_seconds,
             disconnect_lead_seconds,
         )
+    # 状态机只负责阶段轨迹；具体命令仍走原有 request_*/send_command。
+    cycle_runner = PowerCycleRunner(
+        on_power_on=lambda: 0.0,
+        on_connect=lambda: True,
+        on_start_motion=lambda: True,
+        on_stop_motion=lambda: True,
+        on_disconnect=lambda: True,
+        on_power_off=lambda: 0.0,
+    )
+
     processes = start_managed_main_processes(
         args,
         serial_port,
@@ -687,6 +724,7 @@ def run_power_cycle_loop(
                     f"power cycle {cycle_index} 启动前超时",
                     terminate_processes=True,
                     planned_power_off_at=power_off_deadline,
+                    runner=cycle_runner,
                 )
                 log_power_cycle_summary(
                     result="start_delay_timeout",
@@ -758,6 +796,7 @@ def run_power_cycle_loop(
                 args,
                 f"power cycle {cycle_index}",
                 planned_power_off_at=power_off_deadline,
+                runner=cycle_runner,
             )
             actual_on_seconds = None
             if power_off_at is not None:
@@ -845,6 +884,7 @@ def run_power_cycle_loop(
             args,
             "退出流程",
             terminate_processes=True,
+            runner=cycle_runner,
         )
         return 0 if stopped else 1
     except Exception as exc:
@@ -855,6 +895,7 @@ def run_power_cycle_loop(
             args,
             "异常流程",
             terminate_processes=True,
+            runner=cycle_runner,
         )
         return 1
     except BaseException as exc:
@@ -865,6 +906,7 @@ def run_power_cycle_loop(
             args,
             "非标准退出流程",
             terminate_processes=True,
+            runner=cycle_runner,
         )
         raise
     finally:

@@ -407,3 +407,19 @@ stty -F /dev/ttyXRUSB0 -a
 ### 给以后排查用的提示词
 
 SSH 到 `ubuntu@192.168.137.137`，检查绿联 USB-to-RS485 是否被识别。设备芯片应为 Exar XR21B1411，USB ID 为 `04e2:1411`。如果 `lsusb` 能看到设备但没有 `/dev/ttyXRUSB0`，检查 `xr_usb_serial_common` 驱动是否加载、是否安装到 `/lib/modules/$(uname -r)/extra`、是否执行 `depmod`、是否写入 `/etc/modules-load.d/xr_usb_serial_common.conf`。注意该驱动生成的串口是 `/dev/ttyXRUSB0`，不是 `/dev/ttyUSB0`。驱动源码在 `/home/ubuntu/Documents/ll-usb2rs485-driver/Driver`。
+
+## 开机自启启动链（service 约定）
+
+```text
+systemd rpd.service
+  └─ launch.py                 # 唯一入口
+       ├─ 读 active_config.py  # ACTIVE_PRESET 决定模式
+       ├─ 读 config.py         # 展开 preset + sequences
+       ├─ [enable_main_power_cycle=False] N × main.py
+       └─ [enable_main_power_cycle=True]  main_power_cycle.py → 受控 main.py
+```
+
+- **模式切换只动 `active_config.py`**（GPIO `config_switcher` 或 `setup.py`），重启后仍由 service 拉起。
+- `launch.py` 监督子进程，`main.py` 异常退出按当前 preset 重拉。
+- unit 样例：[deploy/rpd.service](deploy/rpd.service)；部署说明：[deploy/README.md](deploy/README.md)。
+- `config_switcher` 使用明文 sudo 密码执行重启（现场约定，按需求保留）。

@@ -8,9 +8,14 @@ import subprocess
 import time
 
 from active_config import ACTIVE_PRESET
-from config import COMMUNICATION_CONFIG, FEATURE_FLAGS
+from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, FEATURE_FLAGS
 from log import setup_logging
-from main_lifecycle import build_python_cmd, start_main_processes
+from main_lifecycle import (
+    build_python_cmd,
+    is_process_active,
+    start_main_processes,
+    stop_main_processes,
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 MAIN_POWER_CYCLE_SCRIPT = os.path.join(BASE_DIR, "main_power_cycle.py")
@@ -29,6 +34,69 @@ def _run_main_power_cycle(python_cmd, communication_mode, launch_count) -> int:
     logger.info("电源通断模式已启用，交由 main_power_cycle.py 管理生命周期")
     logger.debug("main_power_cycle command: %s", cmd)
     return subprocess.run(cmd).returncode
+
+
+def supervise_main_processes(
+    processes,
+    *,
+    communication_mode: str,
+    launch_count: int,
+    python_cmd,
+    check_interval: float = 1.0,
+    restart_backoff_seconds: float = 2.0,
+) -> int:
+    """监督 main.py：异常退出后按当前 preset 重拉，保证开机自启目标。
+
+    开机 service 场景下没有人在场点确认，子进程死掉必须自动恢复。
+    """
+    import time as _time
+
+    from main_lifecycle import build_main_command
+
+    alive = list(processes)
+    logger.info("子进程监督启动: count=%s", len(alive))
+
+    try:
+        while True:
+            dead_indexes = [
+                index for index, proc in enumerate(alive) if not is_process_active(proc)
+            ]
+            if not dead_indexes:
+                _time.sleep(check_interval)
+                continue
+
+            for index in dead_indexes:
+                proc = alive[index]
+                returncode = getattr(proc, "returncode", None)
+                logger.warning(
+                    "检测到 main.py 退出，准备重拉: index=%s, pid=%s, returncode=%s",
+                    index,
+                    getattr(proc, "pid", None),
+                    returncode,
+                )
+                _time.sleep(restart_backoff_seconds)
+
+                cmd = build_main_command(
+                    python_cmd,
+                    communication_mode,
+                    launch_count,
+                    index,
+                )
+                logger.info("重拉 main.py: index=%s, cmd=%s", index, cmd)
+                try:
+                    from main_lifecycle import start_process
+
+                    alive[index] = start_process(cmd)
+                    logger.info("main.py 已重拉: index=%s, pid=%s", index, alive[index].pid)
+                except Exception as exc:
+                    logger.exception("重拉 main.py 失败: index=%s, error=%s", index, exc)
+
+            _time.sleep(check_interval)
+    except KeyboardInterrupt:
+        logger.info("收到中断信号，停止子进程并退出 launch.py")
+        stop_main_processes(alive, timeout=5.0)
+        return 0
+
 
 
 def main() -> int:
@@ -83,22 +151,24 @@ def main() -> int:
             logger.exception("启动 main_power_cycle.py 失败: %s", exc)
             return 1
 
-    start_main_processes(
+    processes = start_main_processes(
         communication_mode,
         launch_count,
         python_cmd=python_cmd,
         continue_on_error=True,
     )
 
-    logger.info("所有启动请求已提交，按 Ctrl+C 退出 launch.py")
+    logger.info(
+        "所有启动请求已提交，进入子进程监督循环（Ctrl+C 退出）: alive=%s",
+        len(processes),
+    )
 
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("收到中断信号，launch.py 退出")
-
-    return 0
+    return supervise_main_processes(
+        processes,
+        communication_mode=communication_mode,
+        launch_count=launch_count,
+        python_cmd=python_cmd,
+    )
 
 
 if __name__ == "__main__":
