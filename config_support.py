@@ -4,15 +4,36 @@ from copy import deepcopy
 import importlib
 from typing import Any, Dict, List, MutableMapping, Optional
 
-from lhandprolib_wrapper import LAC_DOF_6, LAC_DOF_6_S
+from config_models import CANFD_DRIVER_DEFAULT
+from log import (
+    DEFAULT_BACKUP_COUNT as LOG_DEFAULT_BACKUP_COUNT,
+    DEFAULT_MAX_BYTES as LOG_DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_SESSIONS as LOG_DEFAULT_MAX_SESSIONS,
+    DEFAULT_MAX_TOTAL_BYTES as LOG_DEFAULT_MAX_TOTAL_BYTES,
+)
+from lhandprolib_wrapper import (
+    LAC_DOF_6,
+    LAC_DOF_6_S,
+    LAC_DOF_6_V2,
+    LAC_DOF_16,
+    LAC_DOF_GENERIC,
+)
 
 
 HAND_TYPE_MAP = {
     "LAC_DOF_6": LAC_DOF_6,
+    "LAC_DOF_6_V2": LAC_DOF_6_V2,
     "LAC_DOF_6_S": LAC_DOF_6_S,
+    "LAC_DOF_16": LAC_DOF_16,
+    "LAC_DOF_GENERIC": LAC_DOF_GENERIC,
 }
 
 DEFAULT_ACTIVE_PRESET = "configs.config_runtime_default"
+
+# CANFD 传输后端。gsusb = 纯用户态 gs_usb（pyusb + 项目内 vendored gsusb_canfd），
+# 与 SDK 示例的默认后端一致；设为 None 则由 canfd_lib 运行期择优，
+# 也可显式指定 "socketcan" / "libcanbus" / "hcanbus"。
+DEFAULT_CANFD_DRIVER = CANFD_DRIVER_DEFAULT
 
 
 def axis_defaults(value: int, axis_count: int = 6) -> List[int]:
@@ -233,6 +254,7 @@ def export_legacy_config(
             "CURRENT_HAND_TYPE": device_config["current_hand_type"],
             "CANFD_NODE_ID": device_config["canfd_node_id"],
             "RS485_PORT_NAME": device_config["rs485_port_name"],
+            "CANFD_DRIVER": feature_flags.get("canfd_driver", DEFAULT_CANFD_DRIVER),
             "DEFAULT_HOME_TIME": motion_config["default_home_time"],
             "DEFAULT_CYCLE_COUNT": motion_config["default_cycle_count"],
             "DEFAULT_CYCLE_VELOCITY": motion_config["default_cycle_velocity"],
@@ -292,5 +314,22 @@ def export_legacy_config(
             "MAIN_POWER_CYCLE_CONTROL_TIMEOUT": feature_flags.get(
                 "main_power_cycle_control_timeout", 15.0
             ),
+            # 直接展开给 setup_logging(**LOG_RETENTION_CONFIG)，限制 logs/ 的磁盘占用。
+            "LOG_RETENTION_CONFIG": {
+                "max_bytes": int(
+                    feature_flags.get("log_max_bytes", LOG_DEFAULT_MAX_BYTES)
+                ),
+                "backup_count": int(
+                    feature_flags.get("log_backup_count", LOG_DEFAULT_BACKUP_COUNT)
+                ),
+                "max_sessions": int(
+                    feature_flags.get("log_max_sessions", LOG_DEFAULT_MAX_SESSIONS)
+                ),
+                "max_total_bytes": int(
+                    feature_flags.get(
+                        "log_max_total_bytes", LOG_DEFAULT_MAX_TOTAL_BYTES
+                    )
+                ),
+            },
         }
     )

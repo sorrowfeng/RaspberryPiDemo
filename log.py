@@ -5,6 +5,7 @@ import json
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+import re
 import shutil
 import sys
 import threading
@@ -18,6 +19,11 @@ LOG_FILE_ENV = "RPD_LOG_FILE"
 DEFAULT_MAX_BYTES = 20 * 1024 * 1024
 DEFAULT_BACKUP_COUNT = 5
 DEFAULT_MAX_SESSIONS = 30
+# Hard ceiling for the whole log root. Session count alone cannot bound disk usage,
+# because each session can hold one rotating log per process.
+DEFAULT_MAX_TOTAL_BYTES = 1024 * 1024 * 1024
+
+_SESSION_DIR_NAME_RE = re.compile(r"^\d{8}_\d{6}_pid\d+$")
 
 _CONTEXT_FIELDS = ("run_id", "mode", "device", "cycle", "command_id")
 _base_context = {field: "-" for field in _CONTEXT_FIELDS}
@@ -302,6 +308,80 @@ def cleanup_old_log_sessions(log_root: str, current_session: str, max_sessions: 
             print(f"删除旧日志批次失败: path={path}, error={exc}", file=sys.__stderr__)
 
 
+def _path_size(path: str) -> int:
+    """Total byte size of a file or directory tree; unreadable entries count as 0."""
+    try:
+        if os.path.isfile(path):
+            return os.path.getsize(path)
+    except OSError:
+        return 0
+
+    total = 0
+    for root, _dirs, files in os.walk(path):
+        for name in files:
+            try:
+                total += os.path.getsize(os.path.join(root, name))
+            except OSError:
+                continue
+    return total
+
+
+def _session_is_reclaimable(path: str) -> bool:
+    """Only ever remove real run sessions, never unrelated directories in logs/."""
+    if os.path.isfile(os.path.join(path, "session.json")):
+        return True
+    return bool(_SESSION_DIR_NAME_RE.match(os.path.basename(path)))
+
+
+def cleanup_log_sessions_for_size(
+    log_root: str,
+    current_session: str,
+    max_total_bytes: int,
+) -> int:
+    """Delete the oldest inactive sessions until the log root fits the byte budget.
+
+    Returns the number of removed sessions. The current session and any session
+    with a live process marker are counted but never removed, so a single running
+    session can exceed the budget on its own; per-file rotation still caps it.
+    """
+    if max_total_bytes <= 0 or not os.path.isdir(log_root):
+        return 0
+
+    current_session = os.path.abspath(current_session)
+    total_bytes = _path_size(log_root)
+    if total_bytes <= max_total_bytes:
+        return 0
+
+    candidates = []
+    for name in os.listdir(log_root):
+        path = os.path.abspath(os.path.join(log_root, name))
+        if path == current_session or not os.path.isdir(path):
+            continue
+        if not _session_is_reclaimable(path):
+            continue
+        if _session_has_active_process(path):
+            continue
+        try:
+            candidates.append((os.path.getmtime(path), path))
+        except OSError:
+            continue
+
+    candidates.sort()
+    removed = 0
+    for _, path in candidates:
+        if total_bytes <= max_total_bytes:
+            break
+        session_bytes = _path_size(path)
+        try:
+            shutil.rmtree(path)
+        except Exception as exc:
+            print(f"删除旧日志批次失败: path={path}, error={exc}", file=sys.__stderr__)
+            continue
+        total_bytes -= session_bytes
+        removed += 1
+    return removed
+
+
 def _install_exception_hooks(logger):
     def handle_exception(exc_type, exc_value, exc_traceback):
         if issubclass(exc_type, KeyboardInterrupt):
@@ -399,6 +479,7 @@ def setup_logging(
     max_bytes=DEFAULT_MAX_BYTES,
     backup_count=DEFAULT_BACKUP_COUNT,
     max_sessions=DEFAULT_MAX_SESSIONS,
+    max_total_bytes=DEFAULT_MAX_TOTAL_BYTES,
 ):
     """Configure per-process rotating logs within one shared launch session."""
     sys.stdout = sys.__stdout__
@@ -414,10 +495,18 @@ def setup_logging(
         communication_mode,
     )
     _register_active_process(session_dir)
+    retention_summary = None
     if created_session:
         _write_latest_pointer(log_root, session_dir)
         cleanup_old_logs(log_dir=log_root, max_files=max_files)
         cleanup_old_log_sessions(log_root, session_dir, max_sessions=max_sessions)
+        removed_sessions = cleanup_log_sessions_for_size(
+            log_root,
+            session_dir,
+            max_total_bytes=max_total_bytes,
+        )
+        if max_total_bytes > 0:
+            retention_summary = (removed_sessions, _path_size(log_root))
 
     with _base_context_lock:
         _base_context.update(
@@ -481,4 +570,21 @@ def setup_logging(
         max_bytes,
         backup_count,
     )
+    if retention_summary is not None:
+        removed_sessions, retained_bytes = retention_summary
+        logger.info(
+            "日志保留策略: sessions=%s, total_limit_bytes=%s, retained_bytes=%s, "
+            "removed_sessions=%s",
+            max_sessions,
+            max_total_bytes,
+            retained_bytes,
+            removed_sessions,
+        )
+        if retained_bytes > max_total_bytes:
+            logger.warning(
+                "日志总量超过上限且已无可删除的历史批次: retained_bytes=%s, "
+                "total_limit_bytes=%s（活动批次不会被删除，单文件轮转仍会限制单个进程）",
+                retained_bytes,
+                max_total_bytes,
+            )
     return logger

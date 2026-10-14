@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 class CommonInitMixin:
     """Enable motors / home / DOF discovery shared by all transports."""
 
-def _common_initialization(self, enable_motors, home_motors, home_wait_time, on_home_start=None):
+    def _common_initialization(self, enable_motors, home_motors, home_wait_time, on_home_start=None):
         """通用初始化步骤"""
         # 获取自由度
         self.dof_total, self.dof_active = self.lhp.get_dof()

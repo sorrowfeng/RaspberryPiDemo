@@ -5,6 +5,7 @@ import threading
 import time
 
 from ethercat_master import EthercatMaster
+from lhandprolib_wrapper import LCN_ECAT, LHandProLibError
 
 logger = logging.getLogger(__name__)
 
@@ -12,7 +13,7 @@ logger = logging.getLogger(__name__)
 class EcatTransportMixin:
     """EtherCAT-specific callbacks, monitor thread, and connection setup."""
 
-def _ec_send_callback(self, data: bytes) -> bool:
+    def _ec_send_callback(self, data: bytes) -> bool:
         """EtherCAT 发送回调函数"""
         try:
             with self._ecat_callback_lock:
@@ -26,7 +27,7 @@ def _ec_send_callback(self, data: bytes) -> bool:
             logger.exception("EtherCAT 发送失败: %s", e)
         return False
 
-def _monitor_thread_func(self):
+    def _monitor_thread_func(self):
         """监控线程函数：刷新解析 TPDO 数据"""
         try:
             while not self.stop_flag.is_set() and self.is_connected:
@@ -40,7 +41,7 @@ def _monitor_thread_func(self):
             if self.stop_flag and not self.stop_flag.is_set():
                 logger.exception("EtherCAT 接收监控线程异常: %s", e)
 
-def _connect_ecat(
+    def _connect_ecat(
         self,
         enable_motors,
         home_motors,
@@ -50,6 +51,7 @@ def _connect_ecat(
         on_home_start=None,
         connect_retry_interval_seconds=0.0,
         connect_deadline_monotonic=None,
+        non_interactive=False,
     ):
         """使用ECAT模式连接设备"""
         # 创建 EtherCAT 主站

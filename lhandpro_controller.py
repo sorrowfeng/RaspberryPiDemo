@@ -196,6 +196,7 @@ class LHandProController(
                     device_index=device_index,
                     auto_select=auto_select or non_interactive,
                     on_home_start=on_home_start,
+                    non_interactive=non_interactive,
                 )
             elif self.communication_mode == "ECAT":
                 retn = self._connect_ecat(
@@ -207,6 +208,7 @@ class LHandProController(
                     on_home_start=on_home_start,
                     connect_retry_interval_seconds=ecat_connect_retry_interval_seconds,
                     connect_deadline_monotonic=ecat_connect_deadline_monotonic,
+                    non_interactive=non_interactive,
                 )
             elif self.communication_mode == "RS485":
                 retn = self._connect_rs485(
@@ -218,6 +220,7 @@ class LHandProController(
                     node_id=rs485_node_id,
                     device_index=device_index,
                     on_home_start=on_home_start,
+                    non_interactive=non_interactive,
                 )
 
             if not retn:

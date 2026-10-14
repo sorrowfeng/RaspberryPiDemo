@@ -8,7 +8,12 @@ import subprocess
 import time
 
 from active_config import ACTIVE_PRESET
-from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, FEATURE_FLAGS
+from config import (
+    COMMUNICATION_CONFIG,
+    CONFIG_LOAD_ERROR,
+    FEATURE_FLAGS,
+    LOG_RETENTION_CONFIG,
+)
 from log import setup_logging
 from main_lifecycle import (
     build_python_cmd,
@@ -129,6 +134,7 @@ def main() -> int:
         app_name="launch",
         communication_mode=communication_mode,
         device_index="all",
+        **LOG_RETENTION_CONFIG,
     )
     logger.info(
         "launch.py 启动参数: preset=%s, communication_mode=%s, launch_count=%s, "

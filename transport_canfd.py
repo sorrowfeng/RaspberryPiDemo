@@ -2,13 +2,17 @@
 
 import logging
 
+from canfd_bus_claim import create_canfd
+from config import CANFD_DRIVER, DEVICE_CONFIG
+from lhandprolib_wrapper import LCN_CANFD
+
 logger = logging.getLogger(__name__)
 
 
 class CanfdTransportMixin:
     """CANFD-specific callbacks and connection setup."""
 
-def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
+    def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
         """CANFD 发送回调函数"""
         if self.canfd and self.is_connected:
             try:
@@ -18,13 +22,13 @@ def _canfd_send_callback(self, msg_id: int, data: bytes) -> bool:
                 logger.exception("CANFD 发送失败: msg_id=%s, error=%s", msg_id, e)
         return False
 
-def _canfd_receive_callback(self, msg):
+    def _canfd_receive_callback(self, msg):
         """CANFD 接收回调函数"""
         if self.lhp and self.is_connected:
             # 处理接收到的CANFD消息
             self.lhp.set_canfd_data_decode(msg["id"], msg["data"])
 
-def _connect_canfd(
+    def _connect_canfd(
         self,
         enable_motors,
         home_motors,
@@ -34,25 +38,59 @@ def _connect_canfd(
         device_index,
         auto_select,
         on_home_start=None,
+        non_interactive=False,
     ):
         """使用CANFD模式连接设备"""
-        # 初始化CANFD
-        self.canfd = self._canfd_cls()
-
-        logger.info("正在使用CANFD通讯")
+        # 初始化CANFD。driver 由 preset 的 features.canfd_driver 决定；
+        # "gsusb" 走 canfd_bus_claim.create_canfd()，带上跨进程总线占用登记，
+        # 使 scan() 只返回空闲总线，多个 main.py 各自拿到不同总线。
+        logger.info("正在使用CANFD通讯 (后端: %s)", CANFD_DRIVER or "auto")
+        self.canfd = create_canfd(CANFD_DRIVER)
 
         # 扫描CANFD设备
         device_count = self.canfd.scan()
-        logger.info("找到CANFD设备数量：%s", device_count)
+        scan_info = getattr(self.canfd, "last_scan", None) or {}
+        if scan_info.get("taken"):
+            logger.info(
+                "找到可用CANFD设备数量：%s（共 %s 个，%s 个已被其它 main.py 占用）",
+                device_count,
+                scan_info.get("total"),
+                scan_info.get("taken"),
+            )
+        else:
+            logger.info("找到CANFD设备数量：%s", device_count)
 
         if device_count == 0:
-            logger.error("未找到 CANFD 设备")
+            if scan_info.get("total"):
+                logger.error(
+                    "没有空闲 CANFD 设备: 共 %s 个适配器，全部已被其它 main.py 占用",
+                    scan_info["total"],
+                )
+            else:
+                logger.error("未找到 CANFD 设备")
+            if (CANFD_DRIVER or "gsusb") == "gsusb":
+                logger.error(
+                    "gsusb 后端没有可用适配器：请运行 "
+                    "sudo python3 tools/setup_canfd_mode.py 检查 pyusb/libusb 是否就绪、"
+                    "内核 gs_usb 是否仍绑定着适配器（内核驱动与 pyusb 互斥）、"
+                    "udev 权限是否生效，以及其它 main.py 是否已把总线全部占用"
+                )
             self.lhp.close()
             self.lhp = None
             self.canfd = None
             return False
 
         # 处理设备索引
+        if getattr(self.canfd, "claim_aware", False) and device_index is not None:
+            # 多实例由 runtime/canfd_claims/ 的占用登记分配总线，device_index 不再表示
+            # 物理位置（USB 枚举顺序本身不稳定），统一改成"取第一条空闲总线"。
+            logger.info(
+                "gs_usb 总线由跨进程占用登记分配，忽略 device_index=%s；"
+                "各 main.py 自动取第一条空闲总线",
+                device_index,
+            )
+            device_index = 0
+
         if device_index is None:
             if device_count == 1:
                 # 只有一个设备时自动选择
@@ -135,4 +173,3 @@ def _connect_canfd(
             home_wait_time,
             on_home_start=on_home_start,
         )
-

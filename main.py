@@ -8,7 +8,7 @@ import os
 import sys
 
 from active_config import ACTIVE_PRESET
-from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR
+from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, LOG_RETENTION_CONFIG
 from log import setup_logging
 from main_runtime_control import (
     DEFAULT_CONTROL_TIMEOUT,
@@ -109,6 +109,7 @@ def main():
             app_name=f"main_control_{action}_{communication_mode}",
             communication_mode=communication_mode,
             device_index="all" if args.device_index is None else args.device_index,
+            **LOG_RETENTION_CONFIG,
         )
         logging.info(
             "main.py 控制命令: preset=%s, action=%s, communication_mode=%s, "
@@ -132,6 +133,7 @@ def main():
             app_name=f"main_stop_existing_{stop_label}",
             communication_mode=args.communication_mode or "all",
             device_index="all" if args.device_index is None else args.device_index,
+            **LOG_RETENTION_CONFIG,
         )
         logging.info(
             "main.py 停止命令: preset=%s, communication_mode=%s, device_index=%s, timeout=%s",
@@ -174,6 +176,7 @@ def main():
         app_name=f"main_{args.communication_mode}_device_{device_label}",
         communication_mode=args.communication_mode,
         device_index=device_label,
+        **LOG_RETENTION_CONFIG,
     )
     logging.info(
         "main.py 启动参数: preset=%s, communication_mode=%s, device_index=%s, "

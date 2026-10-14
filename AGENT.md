@@ -244,6 +244,37 @@ logs/20260715_173000_pid1234/main_CANFD_device_0_pid1236.log
 回零、运动、实际通断时间及下一步动作。RS485 驱动准备脚本的 stdout/stderr 以
 `RS485_SETUP` 前缀进入父进程日志。
 
+### 日志磁盘上限
+
+日志有四层清理，全部在启动时由创建批次的进程执行一次（子进程继承批次，不重复清理）：
+
+| 层级 | 机制 | 默认值 | 配置键 |
+| --- | --- | --- | --- |
+| 单文件 | `RotatingFileHandler` | 20 MiB × (5 备份 + 1 当前) = 120 MiB/进程 | `log_max_bytes` / `log_backup_count` |
+| 批次数量 | 保留最近 N 个完整批次 | 30 | `log_max_sessions` |
+| **批次总字节** | **`logs/` 总量超限时按时间删除最旧批次** | **1 GiB** | `log_max_total_bytes` |
+| 遗留平铺文件 | 删 `logs/*.log` | 100 个 | 无（保留 `max_files` 形参默认值） |
+
+前两层组合无法给出确定的磁盘上限（单批次占用 = 进程数 × 120 MiB，进程数或重启频率一变，
+总量就跟着放大），因此以 `log_max_total_bytes` 作为硬上限：无论进程数和重启频率如何，
+`logs/` 总量都会被压回该值以内。
+
+规则与边界：
+
+- 配置键写在 preset 的 `features` 中，经 `config.py` 的 `LOG_RETENTION_CONFIG` 传给
+  `setup_logging()`；不写则用 [log.py](/D:/Project/PyProject/RaspberryPiDemo/log.py) 的默认值，
+  所以只有需要收紧的场景（例如三个 `*_power_cycle_test` preset）才需要显式配置。
+- 当前批次和 `_is_pid_running()` 判定仍活着的批次只计入总量、永不删除。因此**单个会话自身
+  超过上限时无法再回收**，此时会记录一条 warning；该情况仍受单文件轮转约束
+  （≈ 进程数 × 120 MiB）。
+- 为避免误删，按字节清理只删「含 `session.json`」或「目录名匹配 `<run_id>` 格式」的目录，
+  `logs/` 下手动放置的其他目录不会被触碰。这一点也顺带修掉了旧逻辑里
+  「缺 `session.json` 的批次永久残留」的问题。
+- 上限设为 `0` 或负数可关闭按字节清理。
+- 创建批次的进程启动后会输出一条
+  `日志保留策略: sessions=... total_limit_bytes=... retained_bytes=... removed_sessions=...`；
+  子进程继承批次、不执行清理，因此不会重复输出。现场排查磁盘占用时先看这行。
+
 ## RS485 串口准备脚本
 
 脚本：
@@ -262,6 +293,261 @@ tools/setup_rs485_mode.py
 - 对检测到的 `/dev/ttyXRUSB*` 执行 RS485 模式配置。
 
 该脚本会被普通 RS485 启动流程和主电源通断测试流程调用。
+
+## CANFD 传输后端（gs_usb）
+
+### 为什么不再用 libcanbus
+
+CANFD 原来走厂商的 `libcanbus.so`（`lib/libcanbus_arm64.tar` → `/usr/local/lib/`，配
+`hcanbus.rules`）。该库是**同一个硬件的厂商用户态 libusb 实现**（`strings` 里自称
+`HCANFD Mini-I`），而这块适配器的 USB ID 是 `a8fa:8598`，**本身就是 gs_usb 协议设备**：
+
+- `gsusb_canfd` 把 `(0xA8FA, 0x8598)` 列为已知设备，且它就是该库的 `DEFAULT_VID/DEFAULT_PID`；
+- 厂商自带的 `lib/socketcan初始化测试指令.txt` 就是这台硬件的 gs_usb 用法
+  （`modprobe gs_usb` + `echo "a8fa 8598" > .../new_id` + `ip link set can0 ... fd on`）。
+
+因此改用 gs_usb **不需要换硬件**，而且可以去掉 Pi 上安装 `libcanbus.so` 的步骤。
+现在项目用的是 SDK 示例同源的实现：
+
+| 项目文件 | 来源 | 说明 |
+| --- | --- | --- |
+| `canfd_lib.py` | SDK 包 `.../examples/CANFD_python/canfd_lib.py` | 46 KB 版，含 gsusb / socketcan / libcanbus / hcanbus 四后端 + `CANFD()` 工厂 |
+| `gsusb_canfd/` | SDK 包 `.../examples/CANFD_python/gsusb_canfd/` | 上游 `gsusb-canfd` 0.1.3（MIT），纯用户态 gs_usb，依赖 pyusb |
+
+### 后端选择
+
+`canfd_lib.CANFD(driver=...)` 是工厂函数，可选值 `gsusb` / `socketcan` / `libcanbus` /
+`hcanbus`；不传或传 `None` 时由 `_AutoCANFD` 运行期择优（优先 gsusb，扫不到再回退）。
+项目在 preset 的 `features` 里用 `canfd_driver` 固定后端，缺省值见
+`config_support.DEFAULT_CANFD_DRIVER`（当前 **`"gsusb"`**）：
+
+```python
+# configs/config_*.py
+"features": {
+    "canfd_driver": "gsusb",   # 省略即用默认值；None = 运行期自动择优
+}
+```
+
+链路是 `features.canfd_driver` → `config.CANFD_DRIVER` → `CANFD(driver=...)`。
+之所以默认**固定**成 gsusb 而不是自动择优：一旦内核 `gs_usb` 绑定过适配器，
+`_AutoCANFD` 会在下次启动时静默改走 socketcan，4 实例老化测试跑在不同后端上很难排查。
+
+### 运行环境要求
+
+```bash
+sudo apt install libusb-1.0-0        # pyusb 需要系统 libusb-1.0
+pip install 'pyusb>=1.2.1'
+```
+
+`gsusb_canfd` 已随项目 vendored 到项目根目录（`canfd_lib.py` 的源码搜索根第一个就是
+项目根），不需要 pip 安装；它要求自身 `>= 0.1.2`（`open(adapter)` 与
+`BusConfig.drop_echo`），vendored 版本是 0.1.3。udev 规则 `lib/hcanbus.rules`
+（`a8fa:8598` MODE=0666）**继续需要**，非 root 运行时靠它拿权限。
+
+### 内核 gs_usb 与 pyusb 互斥
+
+内核 `gs_usb` 驱动和 pyusb 抢同一个 USB 接口，谁先绑定谁独占：
+
+- 用 **gsusb（pyusb）** 后端 → 应当确保 `gs_usb` **没有**绑定适配器：
+  `sudo modprobe -r gs_usb`。注意 `CanFdBus.open()` 会先尝试
+  `detach_kernel_driver(0)`，失败时静默忽略（`bus.py:369-373`），所以以 root 运行时
+  即使模块已绑定也可能侥幸打开；显式解绑更可靠，也能避免内核驱动随后重新绑定。
+- 用 **socketcan** 后端 → 反过来要用内核驱动（该后端会自己 `modprobe -r gs_usb` →
+  `modprobe gs_usb` → 写 `new_id`）
+
+准备脚本：
+
+```bash
+sudo python3 tools/setup_canfd_mode.py
+```
+
+它依次检查 pyusb/libusb、确认并解除 `gs_usb` 绑定（`modprobe -r` 失败时退回 sysfs
+逐接口 `unbind`）、检查 udev 规则、并用 `gsusb_canfd.scan_adapters()` 枚举适配器。
+该脚本**不会**被启动流程自动调用（避免把有意使用 socketcan 的现场改坏）；
+`main.py -m CANFD` 扫不到设备时会打印提示指向它。
+
+### 接收路径不要改回 sleep 轮询
+
+`canfd_lib.py` 的 gsusb 后端把收帧交给库自带的工作线程（`bus.start(callback)`，全程不
+sleep）。**不要**照搬旧版实现的「批量收 500 帧 + 每轮 `time.sleep(0.001)`」写法：
+gs_usb 每个 USB 包只承载一帧，而灵巧手反馈流约 2 kHz，一旦每收一帧就 sleep，
+接收端追不上到达速率，适配器 RX FIFO 会持续溢出并随机丢弃 SDO 应答（`0x581`），
+SDK 会在 50 ms 超时后报 `LER_COMM_RECV(7)`。
+
+### 位时序与 5 Mbps 数据段
+
+gsusb 后端的位时序由 `gsusb_canfd` 依据设备上报的时钟（`BREQ_BT_CONST` /
+`BREQ_BT_CONST_EXT`）用 `calculate_bit_timing`（对齐内核 `can_calc_bittiming`）自动推导，
+采样点固定 1 Mbps@80% / 5 Mbps@75%。用宽松约束离线扫过常见适配器时钟的结果：
+
+- `1 Mbps@80%`：8/16/20/24/36/40/45/48/60/72/80/96/120/144/160 MHz 均可推导；
+- `5 Mbps@75%`：只有时钟接近 5 MHz 整数倍时成立（20/40/45/60/80/120/144/160 MHz），
+  8/16/24/36/48/72/96 MHz 会报 `cannot derive bit timing`。
+
+厂商的 `socketcan初始化测试指令.txt` 用的就是 `dbitrate 5000000`，SDK 也把 5 Mbps 作为
+默认值，所以现场适配器应当满足。若启动时确实报 `cannot derive bit timing`，
+下调数据段波特率即可（当前是 `connect()` 的默认参数）：
+
+```text
+lhandpro_controller.py:201    canfd_dat_baudrate: int = 5000000   # 例如降到 2000000
+```
+
+`canfd_nom_baudrate` 保持 `1000000`。这两项目前没有做成 preset 配置项。
+
+### 多设备（4 实例）与总线占用登记
+
+CANFD preset 基本都是 `default_launch_count: 4`（4 个 main.py = 4 个适配器）。
+
+厂商 libcanbus 独占打开设备后，后续进程的 `CAN_ScanDevice()` 不会再列出该总线，所以
+每个新起的 main.py 都能自动拿到一条空闲总线。gs_usb（pyusb）**没有**这个性质：
+`scan_adapters()` 始终列出全部适配器，而且 `CanFdBus.open()` 不调用 `claim_interface`，
+多个进程会静默打开同一个适配器、两路 CAN 流量互相干扰（表现为随机的 SDO 超时 /
+`LER_COMM_RECV(7)`）。为此 [canfd_bus_claim.py](/D:/Project/PyProject/RaspberryPiDemo/canfd_bus_claim.py)
+实现了应用层的跨进程总线占用登记：
+
+- 每个适配器对应一个占位文件 `runtime/canfd_claims/<标识>.claim`，内容记录持有者 pid；
+- 标识优先用 USB 序列号，无序列号时用 `bus<bus>-addr<address>`；
+- 占位文件用 `O_CREAT|O_EXCL` **原子创建**，写不进就认为被别人持有；
+- `scan()` 只返回"没有被其它存活进程持有"的适配器 —— 即恢复"扫描自动少一个"；
+- 连接成功后一直持有，`disconnect()`（正常退出/收到 SIGTERM）时释放；
+- 进程被 `kill -9` 或掉电后占位文件仍在，但持有者 pid 已不存活，会被自动回收并删除；
+- 创建占位到写入 pid 之间有极短窗口，该窗口内（`CLAIM_WRITE_GRACE_SECONDS=2s`）的
+  占位一律视为已占用，避免把别的进程刚建好的占位当失效文件删掉。
+
+**device_index 在 gsusb 后端不再表示物理位置**：总线由占用登记分配，`_connect_canfd`
+会忽略 `--device-index=N`（`launch.py` 在 `launch_count>1` 时对所有模式都会传它）并记一条
+日志，各进程统一"取第一条空闲总线"。原因是 USB 枚举顺序本身不稳定，按序号固定物理
+对应关系并不可靠；需要固定"某适配器 ↔ 某只手"时应改用序列号定位（尚未做成配置项）。
+
+用假 pyusb 设备 + 真实多进程验证过的行为：
+
+| 场景 | 结果 |
+| --- | --- |
+| 4 个存活进程同时抢 4 条总线 | 各自拿到不同总线，无重复 ✓ |
+| 4 条总线都被占用时再起一个进程 | 第 5 个进程看到 0 条空闲，报"全部已被其它 main.py 占用" ✓ |
+| 某个 main.py 被 `kill -9` | 占位残留但持有者已死，同总线可被后续进程接管 ✓ |
+| 正常退出 | 占位全部释放，`runtime/canfd_claims/` 清空 ✓ |
+| 4 个适配器**序列号完全相同** | 只允许一个进程占用，其余显式报"全部已被占用"（不再静默共用）✓ |
+
+最后一行是序列号重复时的降级行为：占位标识会撞成同一个文件，所以从原来的"静默共用"
+变成"只有一个能跑、其余报错"。多实例前仍然建议先确认序列号：
+
+```bash
+sudo python3 tools/setup_canfd_mode.py     # 逐个打印 serial/bus/addr，并检测重复
+```
+
+`channel_index` 在 gsusb 后端被忽略（单通道型号）。
+
+### 性能
+
+4 × 约 2 kHz 的反馈流 ≈ 8000 次 USB 传输/秒，全部在用户态处理，**CPU 需要实测**：
+
+- 默认 gsusb（pyusb）：装机最省事；
+- 如 CPU 吃紧或出现 `LER_COMM_RECV(7)`，把 `canfd_driver` 改成 `"socketcan"`
+  （内核 gs_usb + `pip install 'python-can~=4.6.1'`），USB 由内核批处理，吞吐更好。
+
+`channel_index` 在 gsusb 后端被忽略（单通道型号）；`device_index` 是
+`scan_adapters()` 的枚举序号，插拔/重启后可能变化。`gsusb_canfd` 的 `DeviceSelector`
+支持按 USB `serial` 定位，需要时可用它把「适配器 ↔ 进程」固定下来。
+
+回退参考：改用 gs_usb 之前的 `canfd_lib.py` 是 19,875 B / sha256 `67FFF376…`，
+需要时可从 git 历史取回；`lib/libcanbus*.tar`、`lib/HCanbus.dll` 仍保留在仓库里
+（Windows 与 `canfd_driver="libcanbus"` 回退路径仍然可用）。
+
+## SDK 版本与升级
+
+### 当前版本
+
+项目内置的 SDK 副本已更新到 **LHandProLib aarch64 20261014**
+（`build.utc_time = 2026-10-14T07:01:26Z`，`source_rev = 27f608f`）。
+
+来源包：
+
+```text
+D:\Project\HandProject\LHandProLib\packages\20261014\LHandProLib-API-Linux-aarch64-20261014.tar.gz
+```
+
+项目内对应的文件：
+
+| 项目文件 | 来源 | 说明 |
+| --- | --- | --- |
+| `lib/LHandProLib.h` | `aarch64/include/LHandProLib/LHandProLib.h` | 与 `lhandprolib_loader.py` 的原型表一一对应 |
+| `lib/libLHandProLib.so` | `aarch64/lib/libLHandProLib.so` | release 版；改用 Debug 版时为 `libLHandProLibd.so` |
+| `lib/LHandProLib.dll` | Windows 包 `x64/bin/LHandProLib.dll` | 本机 Windows 联调用，已同步到 20261014 |
+| `lib/HCanbus.dll` / `lib/hcanbus.rules` / `lib/libcanbus*.tar` | `.../CANFD_python/lib/` | 与 20261014 逐字节一致，无需替换 |
+
+该包要求客户机 **glibc ≥ 2.17**，且已静态链接 libstdc++/libgcc，不依赖目标机的
+`libstdc++` 版本；只有 CANFD 示例额外需要 `libusb-1.0.so.0`（由系统提供）。
+
+### 动态库查找顺序
+
+`lhandprolib_loader.py` 的 `_find_library()` 按顺序取第一个存在的文件，**项目自带的
+`lib/` 优先于 SDK 安装目录**：
+
+```text
+1. <项目>/libLHandProLib.so
+2. <项目>/lib/libLHandProLib.so        <-- 本次放入的位置
+3. <项目>/thirdParty/{bin,lib}/...
+4. <aarch64 根>/bin/libLHandProLib.so
+5. <aarch64 根>/lib/libLHandProLib.so  <-- 设备上原有的 SDK 安装目录
+6. <项目>/../install/{bin,lib}/... , /usr/local/lib , /usr/lib
+```
+
+设备上项目位于 `<aarch64 根>/share/LHandProLib/examples/RaspberryPiDemo`，所以第 5 项
+等于 `/home/ubuntu/Documents/aarch64/lib/libLHandProLib.so`。因为第 2 项优先，**只更新
+SDK 安装目录而不更新项目 `lib/` 不会生效**；反之只更新项目 `lib/` 也能独立升级库版本。
+升级库版本时建议两处一起换，避免下次误判。
+
+### 手型枚举变更（破坏性）
+
+20260921 起 SDK 新增 `C_LAC_DOF_6_V2`（DH116V2），`LAC_DOF_6_S` 与 `LAC_DOF_16`
+的取值整体后移。这些值直接传给 `lhandprolib_set_hand_type`，**新旧库不能混用**：
+
+| 枚举 | 旧值 | 20261014 |
+| --- | --- | --- |
+| `LAC_DOF_6` | 0 | 0 |
+| `LAC_DOF_6_V2` | 不存在 | **1** |
+| `LAC_DOF_6_S` | 1 | **2** |
+| `LAC_DOF_16` | 2 | **3** |
+| `LAC_DOF_GENERIC` | 不存在 | **4** |
+
+`lhandprolib_loader.py` 已同步这些取值，`HAND_TYPE_MAP` 也已支持 `LAC_DOF_6_V2` 和
+`LAC_DOF_GENERIC`。preset 里的 `current_hand_type` 仍写字符串名，不需要改动。
+
+Linux `.so` 与 Windows `lib/LHandProLib.dll` 都已同步到 20261014，两边的
+`lhandprolib_loader._FUNCTION_TABLE` 共 114 个符号**全部解析成功、无缺失符号警告**。
+因为枚举取值与库版本绑定，**回退时两个平台都要一起退**：
+
+| 平台 | 20261014 | 回退参考（升级前） |
+| --- | --- | --- |
+| Linux aarch64 | `lib/libLHandProLib.so` 1,899,096 B | 用旧包的 `aarch64/lib/libLHandProLib.so` |
+| Windows x64 | `lib/LHandProLib.dll` 201,216 B | 177,664 B / sha256 `379b7626…871b22` |
+
+### 新增 API
+
+20261014 相对项目上一版头文件新增 5 个接口，均已加入 loader 原型表：
+
+```text
+lhandprolib_rs485_shared_bus_set_transaction_interval   # 共享总线事务间隔
+lhandprolib_set_rs485_transaction_interval              # 单实例 RS485 事务间隔
+lhandprolib_set_ota_send_data / lhandprolib_get_ota_recv_data   # OTA 固件升级
+lhandprolib_apply_motion_params                         # 立即应用目标速度/电流修改
+```
+
+`wrapper` 目前未封装这 5 个接口；需要时通过 `LHandProLibLoader.lib` 直接调用。
+
+### 升级步骤
+
+1. 解包 `packages/<日期>/LHandProLib-API-Linux-aarch64-<日期>.tar.gz`；
+2. 用 `aarch64/include/LHandProLib/LHandProLib.h` 覆盖 `lib/LHandProLib.h`；
+3. 用 `aarch64/lib/libLHandProLib.so` 覆盖 `lib/libLHandProLib.so`；
+4. 对照新头文件更新 `lhandprolib_loader.py`：手型枚举取值、新增/删除的函数原型；
+5. 在设备上确认 `ldd lib/libLHandProLib.so | grep "not found"` 无输出；
+6. 起一次普通启动，确认日志中没有
+   `当前动态库未导出以下接口` 的 `RuntimeWarning`（该警告会列出缺失符号）。
+
+注意：`lib/` 被 `.gitignore` 的 `lib/` 规则忽略，**替换 `lib/` 下的文件不会进入 git**，
+只影响本地工作副本和后续部署上传的内容。
 
 ## 部署
 

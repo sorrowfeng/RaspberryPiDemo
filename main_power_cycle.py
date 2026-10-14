@@ -12,6 +12,7 @@ from config import (
     CONFIG_LOAD_ERROR,
     DEFAULT_COMMUNICATION_MODE,
     DEFAULT_LAUNCH_COUNT,
+    LOG_RETENTION_CONFIG,
     MAIN_POWER_CYCLE_BAUD_RATE,
     MAIN_POWER_CYCLE_CONNECT_RETRY_INTERVAL,
     MAIN_POWER_CYCLE_CONTROL_TIMEOUT,
@@ -925,6 +926,7 @@ def main() -> int:
         app_name="main_power_cycle",
         communication_mode=args.communication_mode,
         device_index="all" if args.launch_count > 1 else "auto",
+        **LOG_RETENTION_CONFIG,
     )
     install_signal_handlers()
     logger.info(
