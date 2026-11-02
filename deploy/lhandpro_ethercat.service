@@ -1,0 +1,16 @@
+[Unit]
+Description=Run LHandPro Raspberry Python script with sudo
+After=network.target
+
+[Service]
+Type=simple
+# 核心：使用 sudo 和 python3 运行 launch.py
+ExecStart=/usr/bin/sudo /usr/bin/python3 /home/ubuntu/Documents/aarch64/share/LHandProLib/examples/RaspberryPiDemo/launch.py
+# 工作目录固定到项目根目录，确保能找到依赖的 .py 文件
+WorkingDirectory=/home/ubuntu/Documents/aarch64/share/LHandProLib/examples/RaspberryPiDemo
+User=root
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

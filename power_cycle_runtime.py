@@ -1,14 +1,13 @@
-"""Power-cycle timing, port selection, and cleanup state helpers.
+"""Power-cycle timing and port selection helpers.
 
-拆出 main_power_cycle 中的时序魔数、串口选择与断电前清理状态，便于单测与复用。
+拆出 main_power_cycle 中的时序魔数和串口选择，便于单测与复用。
+状态机类型（PowerCyclePhase / CleanupOutcome）只保留在 power_cycle_runner.py。
 """
 
 from __future__ import annotations
 
-import enum
 import logging
 import time
-from dataclasses import dataclass
 from typing import Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -18,27 +17,6 @@ SEND_DRAIN_SECONDS = 0.1
 POWER_COMMAND_WRITE_TIMEOUT_SECONDS = 2.0
 SEND_COMMAND_LABEL_POWER_ON = "上电"
 SEND_COMMAND_LABEL_POWER_OFF = "断电"
-
-
-class PowerCyclePhase(str, enum.Enum):
-    """上电窗口内的逻辑阶段，用于日志与断言。"""
-
-    IDLE = "idle"
-    CONNECTING = "connecting"
-    RUNNING = "running"
-    CLEANUP = "cleanup"
-    POWER_OFF = "power_off"
-
-
-@dataclass
-class CleanupOutcome:
-    """stop_motion_then_power_off 的结果摘要。"""
-
-    cleanup_succeeded: bool
-    communication_released: bool
-    processes_stopped: Optional[bool]
-    force_off_with_incomplete_cleanup: bool
-    power_off_at: Optional[float]
 
 
 def pick_serial_port(ports, *, non_interactive: bool = False, prompt: str = "请选择串口编号"):

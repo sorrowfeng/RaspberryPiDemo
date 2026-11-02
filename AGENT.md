@@ -564,6 +564,15 @@ ubuntu@192.168.137.137
 /home/ubuntu/Documents/aarch64/share/LHandProLib/examples/RaspberryPiDemo
 ```
 
+当前 systemd service：
+
+```text
+lhandpro_ethercat.service
+/etc/systemd/system/lhandpro_ethercat.service
+```
+
+对应的 unit 样例见 [deploy/lhandpro_ethercat.service](deploy/lhandpro_ethercat.service)。
+
 部署时通常上传整个项目，但排除：
 
 - `.git`
@@ -698,7 +707,7 @@ SSH 到 `ubuntu@192.168.137.137`，检查绿联 USB-to-RS485 是否被识别。�
 ## 开机自启启动链（service 约定）
 
 ```text
-systemd rpd.service
+systemd lhandpro_ethercat.service
   └─ launch.py                 # 唯一入口
        ├─ 读 active_config.py  # ACTIVE_PRESET 决定模式
        ├─ 读 config.py         # 展开 preset + sequences
@@ -706,7 +715,7 @@ systemd rpd.service
        └─ [enable_main_power_cycle=True]  main_power_cycle.py → 受控 main.py
 ```
 
-- **模式切换只动 `active_config.py`**（GPIO `config_switcher` 或 `setup.py`），重启后仍由 service 拉起。
+- **模式切换只动 `active_config.py`**（GPIO `config_switcher` 或手动编辑），重启后仍由 service 拉起。
 - `launch.py` 监督子进程，`main.py` 异常退出按当前 preset 重拉。
-- unit 样例：[deploy/rpd.service](deploy/rpd.service)；部署说明：[deploy/README.md](deploy/README.md)。
+- unit 样例：[deploy/lhandpro_ethercat.service](deploy/lhandpro_ethercat.service)；部署说明：[deploy/README.md](deploy/README.md)。
 - `config_switcher` 使用明文 sudo 密码执行重启（现场约定，按需求保留）。

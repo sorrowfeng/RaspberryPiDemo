@@ -4,7 +4,6 @@ from copy import deepcopy
 import importlib
 from typing import Any, Dict, List, MutableMapping, Optional
 
-from config_models import CANFD_DRIVER_DEFAULT
 from log import (
     DEFAULT_BACKUP_COUNT as LOG_DEFAULT_BACKUP_COUNT,
     DEFAULT_MAX_BYTES as LOG_DEFAULT_MAX_BYTES,
@@ -33,7 +32,7 @@ DEFAULT_ACTIVE_PRESET = "configs.config_runtime_default"
 # CANFD 传输后端。gsusb = 纯用户态 gs_usb（pyusb + 项目内 vendored gsusb_canfd），
 # 与 SDK 示例的默认后端一致；设为 None 则由 canfd_lib 运行期择优，
 # 也可显式指定 "socketcan"。
-DEFAULT_CANFD_DRIVER = CANFD_DRIVER_DEFAULT
+DEFAULT_CANFD_DRIVER = "gsusb"
 
 
 def axis_defaults(value: int, axis_count: int = 6) -> List[int]:

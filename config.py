@@ -1,7 +1,6 @@
 """Runtime configuration loader for RaspberryPiDemo."""
 
 from active_config import ACTIVE_PRESET, RUNTIME_OVERRIDES
-from config_models import RuntimeConfig, build_runtime_config
 from config_support import (
     DEFAULT_ACTIVE_PRESET,
     build_runtime_configuration,
@@ -21,8 +20,6 @@ except Exception as exc:
         preset_module=DEFAULT_ACTIVE_PRESET,
         runtime_overrides={"device": {}},
     )
-
-RUNTIME = build_runtime_config(raw_runtime_config)
 
 # 兼容现有 dict 访问路径（MOTION_CONFIG["..."]）
 COMMUNICATION_CONFIG = raw_runtime_config["communication"]

@@ -43,11 +43,10 @@ from serial_port import SerialPort
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
-from power_cycle_runner import CleanupOutcome, PowerCyclePhase, PowerCycleRunner
+from power_cycle_runner import PowerCyclePhase, PowerCycleRunner
 from power_cycle_runtime import (  # noqa: E402
     POWER_COMMAND_WRITE_TIMEOUT_SECONDS,
     SEND_DRAIN_SECONDS,
-    PowerCyclePhase,
     pick_serial_port,
     sleep_until as _sleep_until,
 )

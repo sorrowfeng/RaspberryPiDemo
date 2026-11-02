@@ -1,4 +1,4 @@
-"""Tests for RuntimeConfig and PowerCycleRunner state machine."""
+"""Tests for the PowerCycleRunner state machine."""
 
 import sys
 import unittest
@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config_models import build_runtime_config  # noqa: E402
 from power_cycle_runner import (  # noqa: E402
     make_managed_runner,
     ALLOWED_TRANSITIONS,
@@ -17,55 +16,6 @@ from power_cycle_runner import (  # noqa: E402
     PowerCyclePhase,
     PowerCycleRunner,
 )
-
-
-class RuntimeConfigTests(unittest.TestCase):
-    def _raw(self):
-        return {
-            "communication": {"default_mode": "CANFD", "default_launch_count": 4},
-            "device": {"current_hand_type": 1, "canfd_node_id": 2, "rs485_port_name": None},
-            "motion": {
-                "default_home_time": 5.0,
-                "default_cycle_count": 10,
-                "default_cycle_velocity": 20000,
-                "default_cycle_velocities": [20000] * 6,
-                "default_cycle_interval": 0.8,
-                "default_cycle_current": 1000,
-                "default_cycle_currents": [1000] * 6,
-                "cycle_run_plan": [{"cycles": 10, "velocity_scale": 1.0}],
-                "cycle_move_positions": [{"positions": [0] * 6, "velocities": [20000] * 6,
-                                          "currents": [1000] * 6, "interval": 0.8}],
-                "cycle_finish_position": [7000, 5000, 5000, 0, 0, 0],
-            },
-            "grasp": {"mode": "repeat", "repeat_count": 3, "repeat": {"steps": []},
-                      "hold": {"grip": {"steps": []}, "release": {"steps": []}}},
-            "features": {
-                "auto_connect": True,
-                "auto_cycle_running": True,
-                "enable_alarm_check": True,
-                "enable_home_check": False,
-                "enable_torque_control": False,
-            },
-        }
-
-    def test_build_typed_config(self):
-        cfg = build_runtime_config(self._raw())
-        self.assertEqual(cfg.communication.default_mode, "CANFD")
-        self.assertEqual(cfg.device.canfd_node_id, 2)
-        self.assertEqual(cfg.motion.cycle_run_plan[0].cycles, 10)
-        self.assertEqual(len(cfg.motion.default_cycle_velocities), 6)
-        self.assertFalse(cfg.features.enable_home_check)
-
-    def test_rejects_missing_key(self):
-        raw = self._raw()
-        del raw["device"]["canfd_node_id"]
-        with self.assertRaises(KeyError):
-            build_runtime_config(raw)
-
-    def test_power_cycle_defaults(self):
-        cfg = build_runtime_config(self._raw())
-        self.assertFalse(cfg.features.enable_main_power_cycle)
-        self.assertAlmostEqual(cfg.features.main_power_cycle_on_seconds, 10.0)
 
 
 class PowerCycleRunnerTests(unittest.TestCase):
