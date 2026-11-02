@@ -8,6 +8,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+from log import (
+    DEFAULT_BACKUP_COUNT as LOG_DEFAULT_BACKUP_COUNT,
+    DEFAULT_MAX_BYTES as LOG_DEFAULT_MAX_BYTES,
+    DEFAULT_MAX_SESSIONS as LOG_DEFAULT_MAX_SESSIONS,
+    DEFAULT_MAX_TOTAL_BYTES as LOG_DEFAULT_MAX_TOTAL_BYTES,
+)
+
+# CANFD 传输后端默认值：gs_usb 用户态实现（pyusb + vendored gsusb_canfd）。
+# 同时被 config_support.DEFAULT_CANFD_DRIVER 复用，保持单一来源。
+CANFD_DRIVER_DEFAULT = "gsusb"
+
 
 @dataclass(frozen=True)
 class CommunicationConfig:
@@ -69,6 +80,13 @@ class FeatureFlags:
     main_power_cycle_rs485_ports: Optional[Tuple[str, ...]] = None
     main_power_cycle_stop_timeout: float = 5.0
     main_power_cycle_control_timeout: float = 15.0
+    # CANFD 后端：gsusb / socketcan / libcanbus / hcanbus，None 表示运行期自动择优
+    canfd_driver: Optional[str] = CANFD_DRIVER_DEFAULT
+    # 日志磁盘保留上限（见 log.py）
+    log_max_bytes: int = LOG_DEFAULT_MAX_BYTES
+    log_backup_count: int = LOG_DEFAULT_BACKUP_COUNT
+    log_max_sessions: int = LOG_DEFAULT_MAX_SESSIONS
+    log_max_total_bytes: int = LOG_DEFAULT_MAX_TOTAL_BYTES
 
 
 @dataclass(frozen=True)
@@ -149,6 +167,13 @@ def build_runtime_config(raw: Dict[str, Any]) -> RuntimeConfig:
             main_power_cycle_stop_timeout=float(flags.get("main_power_cycle_stop_timeout", 5.0)),
             main_power_cycle_control_timeout=float(
                 flags.get("main_power_cycle_control_timeout", 15.0)
+            ),
+            canfd_driver=flags.get("canfd_driver", CANFD_DRIVER_DEFAULT),
+            log_max_bytes=int(flags.get("log_max_bytes", LOG_DEFAULT_MAX_BYTES)),
+            log_backup_count=int(flags.get("log_backup_count", LOG_DEFAULT_BACKUP_COUNT)),
+            log_max_sessions=int(flags.get("log_max_sessions", LOG_DEFAULT_MAX_SESSIONS)),
+            log_max_total_bytes=int(
+                flags.get("log_max_total_bytes", LOG_DEFAULT_MAX_TOTAL_BYTES)
             ),
         ),
     )

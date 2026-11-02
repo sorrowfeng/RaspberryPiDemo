@@ -35,5 +35,9 @@ PRESET = {
         "main_power_cycle_port": None,
         "main_power_cycle_stop_timeout": 5.0,
         "main_power_cycle_control_timeout": 15.0,
+        "log_max_bytes": 8388608,
+        "log_backup_count": 2,
+        "log_max_sessions": 10,
+        "log_max_total_bytes": 536870912,
     },
 }

@@ -2,6 +2,7 @@
 
 import logging
 
+from lhandprolib_wrapper import LCN_RS485
 from serial_port import SerialPort
 
 logger = logging.getLogger(__name__)
@@ -10,7 +11,7 @@ logger = logging.getLogger(__name__)
 class Rs485TransportMixin:
     """RS485-specific callbacks and connection setup."""
 
-def _rs485_send_callback(self, data: bytes) -> bool:
+    def _rs485_send_callback(self, data: bytes) -> bool:
         """RS485 发送回调函数"""
         try:
             with self._rs485_callback_lock:
@@ -24,7 +25,7 @@ def _rs485_send_callback(self, data: bytes) -> bool:
             logger.exception("RS485 发送失败: %s", e)
         return False
 
-def _rs485_receive_callback(self, data: bytes):
+    def _rs485_receive_callback(self, data: bytes):
         """RS485 接收回调函数"""
         try:
             with self._rs485_callback_lock:
@@ -33,7 +34,7 @@ def _rs485_receive_callback(self, data: bytes):
         except Exception as e:
             logger.exception("RS485 接收解析失败: %s", e)
 
-def _connect_rs485(
+    def _connect_rs485(
         self,
         enable_motors,
         home_motors,
@@ -43,6 +44,7 @@ def _connect_rs485(
         node_id,
         device_index=None,
         on_home_start=None,
+        non_interactive=False,
     ):
         """使用RS485模式连接设备"""
         self.serial_port = self._serial_cls()

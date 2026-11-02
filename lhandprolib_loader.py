@@ -33,9 +33,13 @@ LER_NOT_HOME = 11
 LER_UNKNOWN = 999
 
 # 型号枚举
+# 注意：SDK 20260921 起新增 LAC_DOF_6_V2（DH116V2），并把 LAC_DOF_6_S / LAC_DOF_16
+# 的取值整体后移。这些值直接传给 lhandprolib_set_hand_type，必须与动态库版本一致。
 LAC_DOF_6 = 0
-LAC_DOF_6_S = 1
-LAC_DOF_16 = 2
+LAC_DOF_6_V2 = 1
+LAC_DOF_6_S = 2
+LAC_DOF_16 = 3
+LAC_DOF_GENERIC = 4
 
 # 通讯类型枚举
 LCN_ECAT = 0
@@ -130,6 +134,8 @@ class LHandProLibLoader:
         ("lhandprolib_rs485_shared_bus_set_receive_data",
          c_int, [c_void_p, POINTER(c_char), c_int]),
         ("lhandprolib_rs485_shared_bus_close", None, [c_void_p]),
+        ("lhandprolib_rs485_shared_bus_set_transaction_interval",
+         None, [c_void_p, c_int]),
         # ---------- 创建/销毁 ----------
         ("lhandprolib_create", c_void_p, []),
         ("lhandprolib_destroy", None, [c_void_p]),
@@ -179,6 +185,10 @@ class LHandProLibLoader:
         ("lhandprolib_get_sdo_drive_param",
          c_int, [c_void_p, c_uint, c_ubyte, POINTER(c_uint)]),
         ("lhandprolib_save_sdo_drive_param", c_int, [c_void_p]),
+        # ---------- OTA 固件升级 ----------
+        ("lhandprolib_set_ota_send_data", c_int, [c_void_p, c_char_p, c_uint]),
+        ("lhandprolib_get_ota_recv_data",
+         c_int, [c_void_p, POINTER(c_char), POINTER(c_int)]),
         # ---------- 手型/方向 ----------
         ("lhandprolib_get_dof", c_int, [c_void_p, POINTER(c_int), POINTER(c_int)]),
         ("lhandprolib_set_hand_type", c_int, [c_void_p, c_int]),
@@ -203,6 +213,7 @@ class LHandProLibLoader:
         ("lhandprolib_get_rs485_node_id", c_int, [c_void_p, POINTER(c_int)]),
         ("lhandprolib_set_rs485_baudrate", c_int, [c_void_p, c_int]),
         ("lhandprolib_get_rs485_baudrate", c_int, [c_void_p, POINTER(c_int)]),
+        ("lhandprolib_set_rs485_transaction_interval", c_int, [c_void_p, c_int]),
         # ---------- 使能/状态 ----------
         ("lhandprolib_set_enable", c_int, [c_void_p, c_int, c_int]),
         ("lhandprolib_get_enable", c_int, [c_void_p, c_int, POINTER(c_int)]),
@@ -233,6 +244,7 @@ class LHandProLibLoader:
         ("lhandprolib_set_max_current", c_int, [c_void_p, c_int, c_int]),
         ("lhandprolib_get_max_current", c_int, [c_void_p, c_int, POINTER(c_int)]),
         ("lhandprolib_move_motors", c_int, [c_void_p, c_int]),
+        ("lhandprolib_apply_motion_params", c_int, [c_void_p]),
         ("lhandprolib_stop_motors", c_int, [c_void_p, c_int]),
         ("lhandprolib_play_gesture", c_int, [c_void_p, c_int, c_int, c_int]),
         ("lhandprolib_sync_position_to_target", c_int, [c_void_p, c_int]),
