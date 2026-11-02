@@ -2,8 +2,8 @@
 
 import logging
 
-from lhandprolib_wrapper import LCN_RS485
-from serial_port import SerialPort
+from device.lhandprolib_wrapper import LCN_RS485
+from device.serial_port import SerialPort
 
 logger = logging.getLogger(__name__)
 

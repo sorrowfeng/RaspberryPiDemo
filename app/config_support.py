@@ -4,13 +4,13 @@ from copy import deepcopy
 import importlib
 from typing import Any, Dict, List, MutableMapping, Optional
 
-from log import (
+from app.log import (
     DEFAULT_BACKUP_COUNT as LOG_DEFAULT_BACKUP_COUNT,
     DEFAULT_MAX_BYTES as LOG_DEFAULT_MAX_BYTES,
     DEFAULT_MAX_SESSIONS as LOG_DEFAULT_MAX_SESSIONS,
     DEFAULT_MAX_TOTAL_BYTES as LOG_DEFAULT_MAX_TOTAL_BYTES,
 )
-from lhandprolib_wrapper import (
+from device.lhandprolib_wrapper import (
     LAC_DOF_6,
     LAC_DOF_6_S,
     LAC_DOF_6_V2,

@@ -9,7 +9,8 @@ import time
 from pathlib import Path
 
 import active_config
-from gpio_controller import GPIO_PINS
+from app.paths import PROJECT_ROOT
+from device.gpio_controller import GPIO_PINS
 
 TIMEOUT_SECONDS = 30
 WRITE_TIMEOUT_SECONDS = 5
@@ -31,7 +32,7 @@ FEEDBACK_DIGIT_POSITIONS = {
     9: [0, 8000, 4000, 10000, 10000, 10000],
 }
 
-ACTIVE_CONFIG_FILE = os.path.join(os.path.dirname(__file__), "active_config.py")
+ACTIVE_CONFIG_FILE = str(PROJECT_ROOT / "active_config.py")
 DEFAULT_PRESET_MODULE = "configs.config_runtime_default"
 
 
@@ -42,7 +43,7 @@ def discover_config_presets(configs_dir=None) -> list:
     `config_*.py` modules are included in sorted order so feedback_id is stable.
     Power-cycle presets are kept: field staff may still want them on the button.
     """
-    root = Path(configs_dir or Path(__file__).resolve().parent / "configs")
+    root = Path(configs_dir or PROJECT_ROOT / "configs")
     modules = [DEFAULT_PRESET_MODULE]
     for path in sorted(root.glob("config_*.py")):
         module = f"configs.{path.stem}"

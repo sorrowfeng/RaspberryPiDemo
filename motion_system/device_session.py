@@ -1,9 +1,9 @@
 import logging
 import time
 
-from config import DEVICE_CONFIG, MOTION_CONFIG
-from gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
-from lhandpro_controller import LHandProController
+from app.config import DEVICE_CONFIG, MOTION_CONFIG
+from device.gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
+from device.lhandpro_controller import LHandProController
 
 
 class DeviceSession:

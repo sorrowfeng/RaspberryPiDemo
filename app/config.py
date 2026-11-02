@@ -1,7 +1,7 @@
 """Runtime configuration loader for RaspberryPiDemo."""
 
 from active_config import ACTIVE_PRESET, RUNTIME_OVERRIDES
-from config_support import (
+from app.config_support import (
     DEFAULT_ACTIVE_PRESET,
     build_runtime_configuration,
     export_legacy_config,

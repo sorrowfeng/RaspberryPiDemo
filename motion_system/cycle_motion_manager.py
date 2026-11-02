@@ -2,7 +2,7 @@ import logging
 import threading
 import time
 
-from config import FEATURE_FLAGS, MOTION_CONFIG
+from app.config import FEATURE_FLAGS, MOTION_CONFIG
 
 
 class CycleMotionManager:

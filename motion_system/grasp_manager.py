@@ -1,6 +1,6 @@
 import logging
 
-from config import GRASP_CONFIG
+from app.config import GRASP_CONFIG
 
 
 class GraspManager:
@@ -38,7 +38,7 @@ class GraspManager:
             logging.warning("hold mode requires GPIO support")
             return
 
-        from gpio_controller import GPIO_PINS
+        from device.gpio_controller import GPIO_PINS
 
         is_triggered = self.session.gpio.read_input(GPIO_PINS.START_GRASP)
         logging.info("GPIO START_GRASP state: %s", is_triggered)

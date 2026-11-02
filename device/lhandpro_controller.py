@@ -9,12 +9,12 @@ import time
 from functools import wraps
 from typing import List, Optional, Tuple, Union
 
-from config import DEVICE_CONFIG, FEATURE_FLAGS
-from transport_canfd import CanfdTransportMixin
-from transport_common import CommonInitMixin
-from transport_ecat import EcatTransportMixin
-from transport_rs485 import Rs485TransportMixin
-from lhandprolib_wrapper import (
+from app.config import DEVICE_CONFIG, FEATURE_FLAGS
+from device.transports.canfd import CanfdTransportMixin
+from device.transports.common import CommonInitMixin
+from device.transports.ecat import EcatTransportMixin
+from device.transports.rs485 import Rs485TransportMixin
+from device.lhandprolib_wrapper import (
     LAC_DOF_6,
     LAC_DOF_6_S,
     LCM_POSITION,
@@ -93,15 +93,15 @@ class LHandProController(
     def _import_communication_libs(self):
         """根据通信模式导入所需的库"""
         if self.communication_mode == "CANFD":
-            from canfd_lib import CANFD as canfd_cls
+            from device.canfd.canfd_lib import CANFD as canfd_cls
 
             self._canfd_cls = canfd_cls
         elif self.communication_mode == "ECAT":
-            from ethercat_master import EthercatMaster as ecat_cls
+            from device.ethercat_master import EthercatMaster as ecat_cls
 
             self._ecat_cls = ecat_cls
         elif self.communication_mode == "RS485":
-            from serial_port import SerialPort as serial_cls
+            from device.serial_port import SerialPort as serial_cls
 
             self._serial_cls = serial_cls
 

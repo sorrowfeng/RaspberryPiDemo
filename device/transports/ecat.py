@@ -4,8 +4,8 @@ import logging
 import threading
 import time
 
-from ethercat_master import EthercatMaster
-from lhandprolib_wrapper import LCN_ECAT, LHandProLibError
+from device.ethercat_master import EthercatMaster
+from device.lhandprolib_wrapper import LCN_ECAT, LHandProLibError
 
 logger = logging.getLogger(__name__)
 

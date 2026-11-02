@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Cycle main power while managing main.py process lifecycle."""
 
+import os
+import sys
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 import argparse
 import logging
-import os
 import signal
 import time
 
 from active_config import ACTIVE_PRESET
-from config import (
+from app.config import (
     CONFIG_LOAD_ERROR,
     DEFAULT_COMMUNICATION_MODE,
     DEFAULT_LAUNCH_COUNT,
@@ -25,26 +31,26 @@ from config import (
     MAIN_POWER_CYCLE_START_DELAY,
     MAIN_POWER_CYCLE_STOP_TIMEOUT,
 )
-from gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
-from log import set_process_logging_context, setup_logging
-from main_lifecycle import (
+from device.gpio_controller import GPIO_AVAILABLE, GPIO_PINS, GPIOController
+from app.log import set_process_logging_context, setup_logging
+from app.lifecycle import (
     setup_rs485_mode,
     start_main_processes,
     stop_main_processes,
 )
-from main_runtime_control import (
+from app.runtime_control import (
     request_existing_main_action,
     stop_existing_main_processes,
     wait_for_main_processes,
 )
-from serial_port import SerialPort
+from device.serial_port import SerialPort
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = PROJECT_ROOT
 POWER_ON_COMMAND = bytes.fromhex("01 06 00 00 00 00 89 CA")
 POWER_OFF_COMMAND = bytes.fromhex("01 06 00 00 00 01 48 0A")
-from power_cycle_runner import PowerCyclePhase, PowerCycleRunner
-from power_cycle_runtime import (  # noqa: E402
+from power_cycle.runner import PowerCyclePhase, PowerCycleRunner
+from power_cycle.runtime import (  # noqa: E402
     POWER_COMMAND_WRITE_TIMEOUT_SECONDS,
     SEND_DRAIN_SECONDS,
     pick_serial_port,
@@ -929,7 +935,7 @@ def main() -> int:
     )
     install_signal_handlers()
     logger.info(
-        "main_power_cycle.py 启动参数: preset=%s, communication_mode=%s, "
+        "power_cycle/main.py 启动参数: preset=%s, communication_mode=%s, "
         "launch_count=%s, port=%s, baud_rate=%s, rs485_ports=%s",
         ACTIVE_PRESET,
         args.communication_mode,
@@ -961,10 +967,10 @@ def main() -> int:
             existing_stopped=True,
         )
     except Exception as exc:
-        logger.exception("main_power_cycle.py 运行失败: %s", exc)
+        logger.exception("power_cycle/main.py 运行失败: %s", exc)
         return 1
     except KeyboardInterrupt:
-        logger.info("main_power_cycle.py 启动/退出阶段收到终止信号")
+        logger.info("power_cycle/main.py 启动/退出阶段收到终止信号")
         if serial_port:
             try:
                 send_command(serial_port, POWER_OFF_COMMAND, "断电")

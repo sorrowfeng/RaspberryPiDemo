@@ -1,6 +1,6 @@
 import logging
 
-from udp_receiver import UDPReceiver
+from device.udp_receiver import UDPReceiver
 
 
 class GloveListenerService:

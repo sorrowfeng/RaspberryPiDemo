@@ -1,7 +1,7 @@
 """Power-cycle timing and port selection helpers.
 
 拆出 main_power_cycle 中的时序魔数和串口选择，便于单测与复用。
-状态机类型（PowerCyclePhase / CleanupOutcome）只保留在 power_cycle_runner.py。
+状态机类型（PowerCyclePhase / CleanupOutcome）只保留在 power_cycle/runner.py。
 """
 
 from __future__ import annotations

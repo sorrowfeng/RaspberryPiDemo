@@ -9,7 +9,7 @@
 systemd (lhandpro_ethercat.service)
   └─ launch.py
        ├─ [默认] N × main.py
-       └─ [enable_main_power_cycle] main_power_cycle.py → 长驻 main.py
+       └─ [enable_main_power_cycle] power_cycle/main.py → 长驻 main.py
 ```
 
 模式来源：

@@ -9,8 +9,10 @@ import sys
 import time
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOOLS_DIR = os.path.join(BASE_DIR, "tools")
+from app.paths import TOOLS_DIR as _TOOLS_DIR
+
+
+TOOLS_DIR = str(_TOOLS_DIR)
 DEFAULT_STOP_TIMEOUT = 5.0
 logger = logging.getLogger(__name__)
 

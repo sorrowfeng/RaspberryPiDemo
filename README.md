@@ -8,21 +8,26 @@ CANFD 默认使用 **gs_usb 用户态实现**（pyusb + 随项目的 `gsusb_canf
 
 ```text
 RaspberryPiDemo/
-├─ main.py
-├─ launch.py
-├─ setup.py
-├─ active_config.py
-├─ config.py
-├─ config_support.py
-├─ configs/
-├─ sequences/
-├─ motion_system/
-├─ tools/
-├─ assets/
-└─ ...
+├─ launch.py                 # systemd 入口
+├─ main.py                   # 单实例入口
+├─ active_config.py          # 当前 preset
+├─ setup.py                  # 现场部署 / 快速切换配置工具
+├─ app/                      # 配置、日志、生命周期、运行时控制
+├─ power_cycle/              # 上下电测试
+├─ device/                   # LHandPro / 传输层 / 硬件驱动
+│  ├─ transports/            # CANFD / ECAT / RS485
+│  └─ canfd/                 # CANFD 后端与 gs_usb
+├─ motion_system/            # 运动、抓握、手套、GPIO 协调
+├─ configs/                  # preset
+├─ sequences/                # 动作序列
+├─ tools/                    # 现场准备/测试/遗留工具
+├─ deploy/                   # systemd unit 与部署说明
+├─ docs/assets/              # 文档图片
+├─ tests/
+└─ lib/                      # SDK 二进制（gitignore）
 ```
 
-- `config.py`：统一配置入口，运行时代码只从这里读取配置
+- `app/config.py`：统一配置入口，运行时代码只从这里读取配置
 - `active_config.py`：当前激活的 preset，以及现场覆盖参数
 - `configs/`：preset 元数据，描述设备、总线、功能开关，以及引用哪些动作序列
 - `sequences/`：动作序列定义，统一描述每一步的 `positions`、`velocities`、`currents`、`interval`
@@ -39,10 +44,10 @@ RaspberryPiDemo/
 运行时仍然只需要：
 
 ```python
-from config import DEFAULT_COMMUNICATION_MODE, MOTION_CONFIG, GRASP_CONFIG
+from app.config import COMMUNICATION_CONFIG, MOTION_CONFIG, GRASP_CONFIG
 ```
 
-`config.py` 会自动读取 [active_config.py](active_config.py) 中指定的 preset，并加载对应 sequence。
+`app/config.py` 会自动读取 [active_config.py](active_config.py) 中指定的 preset，并加载对应 sequence。
 
 ## 切换当前配置
 
@@ -60,15 +65,29 @@ RUNTIME_OVERRIDES = {
 }
 ```
 
-### 方式 2：使用 `setup.py`
+### 方式 2：GPIO 按键
 
-`setup.py` 现在会：
+运行中的 `main.py` 支持 GPIO `SWITCH_CONFIG`：
 
-- 选择一个 preset
-- 写入 `active_config.py`
-- 在 CANFD 场景下写入 `canfd_node_id` 覆盖值
+- 短按切换下一个 preset
+- 长按约 1.5 秒回到第一个 preset
+- 30 秒无操作后写回 `active_config.py` 并重启生效
 
-不再通过覆盖整份 `config.py` 来切换配置。
+### 方式 3：`setup.py` 现场工具
+
+把项目根目录的 `setup.py` 复制到树莓派 `~/Documents`（与 `aarch64/` 同级），并把
+SDK 压缩包和 `RaspberryPiDemo.7z` 放在同一目录，运行：
+
+```bash
+cd ~/Documents
+python3 setup.py
+```
+
+- 选择 SDK 包：解压 SDK、清理 examples、解压 `RaspberryPiDemo.7z`，再选择 preset；
+- 选择“跳过（不解压 SDK）”：只切换 preset 并写回 `active_config.py`，不修改 SDK/examples；
+- 最后可选择立即关机。
+
+该脚本是现场部署工具，不由 systemd 调用；开机启动仍由 `launch.py` 负责。
 
 ## 动作序列格式
 
@@ -115,7 +134,7 @@ sudo python3 launch.py -m ECAT -n 1
 sudo python3 launch.py -m RS485 -n 4
 ```
 
-`launch.py` 会读取 [config.py](config.py) 导出的默认值，也支持命令行覆盖。
+`launch.py` 会读取 [app/config.py](app/config.py) 导出的默认值，也支持命令行覆盖。
 
 ## 辅助脚本
 
@@ -134,5 +153,5 @@ python3 tools/pack.py
 
 - 新增机型/场景时，优先新增一个 `configs/config_*.py` preset
 - 如果动作很多，不要继续塞进 preset，直接新增 `sequences/*.py`
-- 业务运行代码只依赖 `config.py` 的结构化配置（`COMMUNICATION_CONFIG` / `DEVICE_CONFIG` / `MOTION_CONFIG` / `GRASP_CONFIG` / `FEATURE_FLAGS`），不要直接读取 preset 或 sequence 文件
+- 业务运行代码只依赖 `app/config.py` 的结构化配置（`COMMUNICATION_CONFIG` / `DEVICE_CONFIG` / `MOTION_CONFIG` / `GRASP_CONFIG` / `FEATURE_FLAGS`），不要直接读取 preset 或 sequence 文件
 - 平铺的全大写常量仅供旧脚本兼容，新代码不要再用

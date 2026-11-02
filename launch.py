@@ -8,14 +8,14 @@ import subprocess
 import time
 
 from active_config import ACTIVE_PRESET
-from config import (
+from app.config import (
     COMMUNICATION_CONFIG,
     CONFIG_LOAD_ERROR,
     FEATURE_FLAGS,
     LOG_RETENTION_CONFIG,
 )
-from log import setup_logging
-from main_lifecycle import (
+from app.log import setup_logging
+from app.lifecycle import (
     build_python_cmd,
     is_process_active,
     start_main_processes,
@@ -23,7 +23,7 @@ from main_lifecycle import (
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MAIN_POWER_CYCLE_SCRIPT = os.path.join(BASE_DIR, "main_power_cycle.py")
+MAIN_POWER_CYCLE_SCRIPT = os.path.join(BASE_DIR, "power_cycle", "main.py")
 logger = logging.getLogger(__name__)
 
 
@@ -36,7 +36,7 @@ def _run_main_power_cycle(python_cmd, communication_mode, launch_count) -> int:
         f"--communication-mode={communication_mode}",
         f"--launch-count={launch_count}",
     ]
-    logger.info("电源通断模式已启用，交由 main_power_cycle.py 管理生命周期")
+    logger.info("电源通断模式已启用，交由 power_cycle/main.py 管理生命周期")
     logger.debug("main_power_cycle command: %s", cmd)
     return subprocess.run(cmd).returncode
 
@@ -56,7 +56,7 @@ def supervise_main_processes(
     """
     import time as _time
 
-    from main_lifecycle import build_main_command
+    from app.lifecycle import build_main_command
 
     alive = list(processes)
     logger.info("子进程监督启动: count=%s", len(alive))
@@ -89,7 +89,7 @@ def supervise_main_processes(
                 )
                 logger.info("重拉 main.py: index=%s, cmd=%s", index, cmd)
                 try:
-                    from main_lifecycle import start_process
+                    from app.lifecycle import start_process
 
                     alive[index] = start_process(cmd)
                     logger.info("main.py 已重拉: index=%s, pid=%s", index, alive[index].pid)
@@ -154,7 +154,7 @@ def main() -> int:
         try:
             return _run_main_power_cycle(python_cmd, communication_mode, launch_count)
         except Exception as exc:
-            logger.exception("启动 main_power_cycle.py 失败: %s", exc)
+            logger.exception("启动 power_cycle/main.py 失败: %s", exc)
             return 1
 
     processes = start_main_processes(

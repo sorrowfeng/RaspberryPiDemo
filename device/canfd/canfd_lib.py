@@ -100,10 +100,15 @@ def _ensure_libusb_visible() -> None:
         return
 
     base = _example_dir()
+    project_root = os.path.dirname(os.path.dirname(base))
     candidates = []
     if sys.maxsize <= 2 ** 32:  # 32 位解释器优先取 lib/x86
         candidates.append(os.path.join(base, "lib", "x86"))
-    candidates += [os.path.join(base, "lib"), base]
+    candidates += [
+        os.path.join(base, "lib"),
+        base,
+        os.path.join(project_root, "lib"),
+    ]
 
     for directory in candidates:
         if not os.path.isfile(os.path.join(directory, _LIBUSB_DLL_NAME)):

@@ -10,14 +10,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from config_support import (  # noqa: E402
+from app.config_support import (  # noqa: E402
     merge_overrides,
     normalize_axis_values,
     normalize_cycle_run_plan,
     normalize_sequence,
 )
-from config_switcher import discover_config_presets, feedback_id_to_digits  # noqa: E402
-from main_runtime_control import (  # noqa: E402
+from app.config_switcher import discover_config_presets, feedback_id_to_digits  # noqa: E402
+from app.runtime_control import (  # noqa: E402
     atomic_write_json,
     device_label,
     read_json_file,

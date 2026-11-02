@@ -2,9 +2,9 @@
 
 import logging
 
-from canfd_bus_claim import create_canfd
-from config import CANFD_DRIVER, DEVICE_CONFIG
-from lhandprolib_wrapper import LCN_CANFD
+from device.canfd.bus_claim import create_canfd
+from app.config import CANFD_DRIVER, DEVICE_CONFIG
+from device.lhandprolib_wrapper import LCN_CANFD
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class CanfdTransportMixin:
     ):
         """使用CANFD模式连接设备"""
         # 初始化CANFD。driver 由 preset 的 features.canfd_driver 决定；
-        # "gsusb" 走 canfd_bus_claim.create_canfd()，带上跨进程总线占用登记，
+        # "gsusb" 走 device/canfd/bus_claim.create_canfd()，带上跨进程总线占用登记，
         # 使 scan() 只返回空闲总线，多个 main.py 各自拿到不同总线。
         logger.info("正在使用CANFD通讯 (后端: %s)", CANFD_DRIVER or "auto")
         self.canfd = create_canfd(CANFD_DRIVER)

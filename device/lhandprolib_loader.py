@@ -12,6 +12,8 @@ import sys
 import warnings
 from pathlib import Path
 from typing import Optional
+
+from app.paths import PROJECT_ROOT
 from ctypes import (
     c_void_p, c_int, c_float, c_bool, c_uint, c_ubyte, c_char, c_char_p,
     POINTER,
@@ -325,17 +327,23 @@ class LHandProLibLoader:
 
         # 尝试在常见位置查找库文件
         lib_paths = [
-            Path(__file__).parent / lib_name,
-            Path(__file__).parent / "lib" / lib_name,
-            Path(__file__).parent / "thirdParty/bin" / lib_name,
-            Path(__file__).parent / "thirdParty/lib" / lib_name,
-            Path(__file__).parent / "../../../../bin" / lib_name,
-            Path(__file__).parent / "../../../../lib" / lib_name,
-            Path(__file__).parent / "../install/bin" / lib_name,
-            Path(__file__).parent / "../install/lib" / lib_name,
+            PROJECT_ROOT / lib_name,
+            PROJECT_ROOT / "lib" / lib_name,
+            PROJECT_ROOT / "thirdParty/bin" / lib_name,
+            PROJECT_ROOT / "thirdParty/lib" / lib_name,
+            PROJECT_ROOT.parent / "install/bin" / lib_name,
+            PROJECT_ROOT.parent / "install/lib" / lib_name,
             Path("/usr/local/lib") / lib_name,
             Path("/usr/lib") / lib_name,
         ]
+        # 设备上项目位于 <aarch64>/share/LHandProLib/examples/RaspberryPiDemo，
+        # 再往上是 SDK 安装根；路径层级不足时跳过，避免浅部署目录 IndexError。
+        if len(PROJECT_ROOT.parents) > 3:
+            sdk_root = PROJECT_ROOT.parents[3]
+            lib_paths.extend([
+                sdk_root / "bin" / lib_name,
+                sdk_root / "lib" / lib_name,
+            ])
 
         for path in lib_paths:
             if path.exists():

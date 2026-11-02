@@ -8,9 +8,9 @@ import os
 import sys
 
 from active_config import ACTIVE_PRESET
-from config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, LOG_RETENTION_CONFIG
-from log import setup_logging
-from main_runtime_control import (
+from app.config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, LOG_RETENTION_CONFIG
+from app.log import setup_logging
+from app.runtime_control import (
     DEFAULT_CONTROL_TIMEOUT,
     DEFAULT_STOP_TIMEOUT,
     install_signal_handlers,

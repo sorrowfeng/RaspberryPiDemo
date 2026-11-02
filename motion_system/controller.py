@@ -4,21 +4,21 @@ import time
 
 import keyboard
 
-from config import FEATURE_FLAGS
-from gpio_controller import GPIO_PINS
-from main_runtime_control import (
+from app.config import FEATURE_FLAGS
+from device.gpio_controller import GPIO_PINS
+from app.runtime_control import (
     complete_control_command,
     emit_control_progress,
     read_control_command,
 )
-from log import logging_context, set_process_logging_context
+from app.log import logging_context, set_process_logging_context
 
 try:
     import RPi.GPIO as GPIO
 except ImportError:
     GPIO = None
 
-from config_switcher import TIMEOUT_SECONDS, ConfigSwitcher
+from app.config_switcher import TIMEOUT_SECONDS, ConfigSwitcher
 from .cycle_motion_manager import CycleMotionManager
 from .device_session import DeviceSession
 from .glove_listener_service import GloveListenerService

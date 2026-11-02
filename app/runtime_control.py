@@ -8,11 +8,11 @@ import sys
 import time
 import uuid
 
-from log import LOG_FILE_ENV, LOG_RUN_ID_ENV, get_logging_context
+from app.log import LOG_FILE_ENV, LOG_RUN_ID_ENV, get_logging_context
+from app.paths import RUNTIME_DIR as _RUNTIME_DIR
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+RUNTIME_DIR = str(_RUNTIME_DIR)
 DEFAULT_STOP_TIMEOUT = 5.0
 DEFAULT_CONTROL_TIMEOUT = 15.0
 

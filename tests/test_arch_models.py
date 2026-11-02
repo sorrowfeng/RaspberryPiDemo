@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from power_cycle_runner import (  # noqa: E402
+from power_cycle.runner import (  # noqa: E402
     make_managed_runner,
     ALLOWED_TRANSITIONS,
     IllegalTransition,
@@ -31,7 +31,7 @@ class PowerCycleRunnerTests(unittest.TestCase):
 
     def test_happy_path_reaches_power_off(self):
         runner = self._runner()
-        with mock.patch("power_cycle_runner.time.sleep"):
+        with mock.patch("power_cycle.runner.time.sleep"):
             outcome = runner.run_cycle(
                 start_delay=0.0, on_seconds=0.2, disconnect_lead_seconds=0.0,
                 force_off_at_deadline=True, off_seconds=0.1,
@@ -44,7 +44,7 @@ class PowerCycleRunnerTests(unittest.TestCase):
 
     def test_connect_failure_still_powers_off(self):
         runner = self._runner(connect_ok=False)
-        with mock.patch("power_cycle_runner.time.sleep"):
+        with mock.patch("power_cycle.runner.time.sleep"):
             outcome = runner.run_cycle(
                 start_delay=0.0, on_seconds=0.1, disconnect_lead_seconds=0.0,
                 force_off_at_deadline=True, off_seconds=0.1,
@@ -70,7 +70,7 @@ class ManagedRunnerFactoryTests(unittest.TestCase):
             request_stop=lambda: calls.append("stop") or True,
             power_off=lambda: calls.append("off") or 2.0,
         )
-        with mock.patch("power_cycle_runner.time.sleep"):
+        with mock.patch("power_cycle.runner.time.sleep"):
             outcome = runner.run_cycle(
                 start_delay=0.0, on_seconds=0.05, disconnect_lead_seconds=0.0,
                 force_off_at_deadline=True, off_seconds=0.01,

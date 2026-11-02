@@ -26,26 +26,26 @@
 - `launch.py`
   - 统一启动入口。
   - 根据配置启动一个或多个 `main.py`。
-  - 当配置启用主电源通断测试时，转交给 `main_power_cycle.py` 管理生命周期。
+  - 当配置启用主电源通断测试时，转交给 `power_cycle/main.py` 管理生命周期。
 
-- `main_power_cycle.py`
+- `power_cycle/main.py`
   - 主电源通断测试入口。
   - 先执行 USB-to-RS485 模式配置脚本；该脚本会尝试加载 Exar `xr_usb_serial_common` 驱动并等待 `/dev/ttyXRUSB*` 出现。
   - 打开主电源控制串口。
   - 启动长驻 `main.py` 子进程后不按轮次退出；每轮通过控制命令让子进程连接、回零、开始运动、停止运动并断开设备。
 
-- `main_runtime_control.py`
+- `app/runtime_control.py`
   - `main.py` 长驻进程控制接口。
   - 通过 `runtime/` 下的 PID、命令、响应 JSON 文件实现外部命令调用。
 
-- `main_lifecycle.py`
+- `app/lifecycle.py`
   - `main.py` 生命周期共享模块。
-  - 被 `launch.py` 和 `main_power_cycle.py` 共同使用。
+  - 被 `launch.py` 和 `power_cycle/main.py` 共同使用。
   - 负责构造 Python 命令、RS485 前置准备、启动/停止多个 `main.py` 进程。
 
 ## 配置体系
 
-配置入口是 `config.py`，运行时代码应优先从这里读取配置，不要直接读取具体 preset。
+配置入口是 `app/config.py`，运行时代码应优先从这里读取配置，不要直接读取具体 preset。
 
 配置来源：
 
@@ -150,7 +150,7 @@ sudo python3 main.py --stop-existing
 
 ```text
 launch.py
-  -> main_power_cycle.py
+  -> power_cycle/main.py
       -> 清理同通信模式下已存在的 main.py
       -> tools/setup_rs485_mode.py
       -> 打开主电源控制串口
@@ -207,7 +207,7 @@ GPIO12
 logs/<run_id>/
 ```
 
-`launch.py` 每次启动会创建一个 `run_id` 批次目录，`main_power_cycle.py` 和全部
+`launch.py` 每次启动会创建一个 `run_id` 批次目录，`power_cycle/main.py` 和全部
 `main.py` 子进程继承同一个批次。直接执行任一入口时也会自动创建独立批次。
 
 批次内文件名包含入口和 pid，例如：
@@ -261,7 +261,7 @@ logs/20260715_173000_pid1234/main_CANFD_device_0_pid1236.log
 
 规则与边界：
 
-- 配置键写在 preset 的 `features` 中，经 `config.py` 的 `LOG_RETENTION_CONFIG` 传给
+- 配置键写在 preset 的 `features` 中，经 `app/config.py` 的 `LOG_RETENTION_CONFIG` 传给
   `setup_logging()`；不写则用 [log.py](/D:/Project/PyProject/RaspberryPiDemo/log.py) 的默认值，
   所以只有需要收紧的场景（例如三个 `*_power_cycle_test` preset）才需要显式配置。
 - 当前批次和 `_is_pid_running()` 判定仍活着的批次只计入总量、永不删除。因此**单个会话自身
@@ -309,18 +309,18 @@ SDK 示例同源的实现：
 
 | 项目文件 | 来源 | 说明 |
 | --- | --- | --- |
-| `canfd_lib.py` | SDK 包 `.../examples/CANFD_python/canfd_lib.py` | gsusb / socketcan 双后端 + `CANFD()` 工厂 |
-| `gsusb_canfd/` | SDK 包 `.../examples/CANFD_python/gsusb_canfd/` | 上游 `gsusb-canfd` 0.1.3（MIT），纯用户态 gs_usb，依赖 pyusb |
+| `device/canfd/canfd_lib.py` | SDK 包 `.../examples/CANFD_python/canfd_lib.py` | gsusb / socketcan 双后端 + `CANFD()` 工厂 |
+| `device/canfd/gsusb_canfd/` | SDK 包 `.../examples/CANFD_python/gsusb_canfd/` | 上游 `gsusb-canfd` 0.1.3（MIT），纯用户态 gs_usb，依赖 pyusb |
 
-注意：本仓库的 `canfd_lib.py` 已裁剪为只保留 gsusb / socketcan 两条后端路径；
+注意：本仓库的 `device/canfd/canfd_lib.py` 已裁剪为只保留 gsusb / socketcan 两条后端路径；
 从 SDK 重新同步该文件时，需要保留这份裁剪，否则会重新引入已废弃的厂商后端。
 
 ### 后端选择
 
-`canfd_lib.CANFD(driver=...)` 是工厂函数，可选值 `gsusb` / `socketcan`；
+`device/canfd/canfd_lib.CANFD(driver=...)` 是工厂函数，可选值 `gsusb` / `socketcan`；
 不传或传 `None` 时由 `_AutoCANFD` 运行期择优（优先 gsusb，扫不到再回退到 socketcan）。
 项目在 preset 的 `features` 里用 `canfd_driver` 固定后端，缺省值见
-`config_support.DEFAULT_CANFD_DRIVER`（当前 **`"gsusb"`**）：
+`app/config_support.DEFAULT_CANFD_DRIVER`（当前 **`"gsusb"`**）：
 
 ```python
 # configs/config_*.py
@@ -329,7 +329,7 @@ SDK 示例同源的实现：
 }
 ```
 
-链路是 `features.canfd_driver` → `config.CANFD_DRIVER` → `CANFD(driver=...)`。
+链路是 `features.canfd_driver` → `app.config.CANFD_DRIVER` → `CANFD(driver=...)`。
 之所以默认**固定**成 gsusb 而不是自动择优：一旦内核 `gs_usb` 绑定过适配器，
 `_AutoCANFD` 会在下次启动时静默改走 socketcan，4 实例老化测试跑在不同后端上很难排查。
 
@@ -340,8 +340,8 @@ sudo apt install libusb-1.0-0        # pyusb 需要系统 libusb-1.0
 pip install 'pyusb>=1.2.1'
 ```
 
-`gsusb_canfd` 已随项目 vendored 到项目根目录（`canfd_lib.py` 的源码搜索根第一个就是
-项目根），不需要 pip 安装；它要求自身 `>= 0.1.2`（`open(adapter)` 与
+`gsusb_canfd` 已随项目 vendored 到 `device/canfd/gsusb_canfd/`（`device/canfd/canfd_lib.py`
+的源码搜索根第一个就是该目录），不需要 pip 安装；它要求自身 `>= 0.1.2`（`open(adapter)` 与
 `BusConfig.drop_echo`），vendored 版本是 0.1.3。udev 权限规则（适配器
 `a8fa:8598` → `MODE=0666`）**继续需要**，非 root 运行时靠它拿权限；
 `tools/setup_canfd_mode.py` 会扫描 `/etc/udev/rules.d/*.rules` 检查是否已有匹配规则。
@@ -370,7 +370,7 @@ sudo python3 tools/setup_canfd_mode.py
 
 ### 接收路径不要改回 sleep 轮询
 
-`canfd_lib.py` 的 gsusb 后端把收帧交给库自带的工作线程（`bus.start(callback)`，全程不
+`device/canfd/canfd_lib.py` 的 gsusb 后端把收帧交给库自带的工作线程（`bus.start(callback)`，全程不
 sleep）。**不要**照搬旧版实现的「批量收 500 帧 + 每轮 `time.sleep(0.001)`」写法：
 gs_usb 每个 USB 包只承载一帧，而灵巧手反馈流约 2 kHz，一旦每收一帧就 sleep，
 接收端追不上到达速率，适配器 RX FIFO 会持续溢出并随机丢弃 SDO 应答（`0x581`），
@@ -391,7 +391,7 @@ gsusb 后端的位时序由 `gsusb_canfd` 依据设备上报的时钟（`BREQ_BT
 下调数据段波特率即可（当前是 `connect()` 的默认参数）：
 
 ```text
-lhandpro_controller.py:201    canfd_dat_baudrate: int = 5000000   # 例如降到 2000000
+device/lhandpro_controller.py:201    canfd_dat_baudrate: int = 5000000   # 例如降到 2000000
 ```
 
 `canfd_nom_baudrate` 保持 `1000000`。这两项目前没有做成 preset 配置项。
@@ -403,7 +403,7 @@ CANFD preset 基本都是 `default_launch_count: 4`（4 个 main.py = 4 个适�
 gs_usb（pyusb）**没有设备独占语义**：`scan_adapters()` 始终列出全部适配器，而且
 `CanFdBus.open()` 不调用 `claim_interface`，多个进程会静默打开同一个适配器、两路 CAN
 流量互相干扰（表现为随机的 SDO 超时 / `LER_COMM_RECV(7)`）。为此
-[canfd_bus_claim.py](/D:/Project/PyProject/RaspberryPiDemo/canfd_bus_claim.py)
+[device/canfd/bus_claim.py](device/canfd/bus_claim.py)
 实现了应用层的跨进程总线占用登记：
 
 - 每个适配器对应一个占位文件 `runtime/canfd_claims/<标识>.claim`，内容记录持有者 pid；
@@ -470,7 +470,7 @@ D:\Project\HandProject\LHandProLib\packages\20261031\LHandProLib-API-Linux-aarch
 
 | 项目文件 | 来源 | 说明 |
 | --- | --- | --- |
-| `lib/LHandProLib.h` | `aarch64/include/LHandProLib/LHandProLib.h` | 与 `lhandprolib_loader.py` 的原型表一一对应 |
+| `lib/LHandProLib.h` | `aarch64/include/LHandProLib/LHandProLib.h` | 与 `device/lhandprolib_loader.py` 的原型表一一对应 |
 | `lib/LHandProLib.hpp` | `aarch64/include/LHandProLib/LHandProLib.hpp` | C++ 头文件，随包附带 |
 | `lib/libLHandProLib.so` | `aarch64/lib/libLHandProLib.so` | release 版；改用 Debug 版时为 `libLHandProLibd.so` |
 | `lib/LHandProLib.dll` | Windows 包 `x64/bin/LHandProLib.dll` | **仍为 20261014**；20261031 只发布了 Linux aarch64 / macOS 包 |
@@ -480,7 +480,7 @@ D:\Project\HandProject\LHandProLib\packages\20261031\LHandProLib-API-Linux-aarch
 
 ### 动态库查找顺序
 
-`lhandprolib_loader.py` 的 `_find_library()` 按顺序取第一个存在的文件，**项目自带的
+`device/lhandprolib_loader.py` 的 `_find_library()` 按顺序取第一个存在的文件，**项目自带的
 `lib/` 优先于 SDK 安装目录**：
 
 ```text
@@ -510,10 +510,10 @@ SDK 安装目录而不更新项目 `lib/` 不会生效**；反之只更新项目
 | `LAC_DOF_16` | 2 | **3** |
 | `LAC_DOF_GENERIC` | 不存在 | **4** |
 
-`lhandprolib_loader.py` 已同步这些取值，`HAND_TYPE_MAP` 也已支持 `LAC_DOF_6_V2` 和
+`device/lhandprolib_loader.py` 已同步这些取值，`HAND_TYPE_MAP` 也已支持 `LAC_DOF_6_V2` 和
 `LAC_DOF_GENERIC`。preset 里的 `current_hand_type` 仍写字符串名，不需要改动。
 
-Linux `.so` 已同步到 20261031，`lhandprolib_loader._FUNCTION_TABLE` 共 115 个符号
+Linux `.so` 已同步到 20261031，`device/lhandprolib_loader._FUNCTION_TABLE` 共 115 个符号
 **全部解析成功、无缺失符号警告**。Windows `lib/LHandProLib.dll` 仍为 20261014，
 两平台枚举取值一致但库版本不同，升级/回退时应以对应平台包为准：
 
@@ -542,7 +542,7 @@ OTA、`apply_motion_params`）保持不变，wrapper 仍未全部封装。
 1. 解包 `packages/<日期>/LHandProLib-API-Linux-aarch64-<日期>.tar.gz`；
 2. 用 `aarch64/include/LHandProLib/LHandProLib.h` 覆盖 `lib/LHandProLib.h`；
 3. 用 `aarch64/lib/libLHandProLib.so` 覆盖 `lib/libLHandProLib.so`；
-4. 对照新头文件更新 `lhandprolib_loader.py`：手型枚举取值、新增/删除的函数原型；
+4. 对照新头文件更新 `device/lhandprolib_loader.py`：手型枚举取值、新增/删除的函数原型；
 5. 在设备上确认 `ldd lib/libLHandProLib.so | grep "not found"` 无输出；
 6. 起一次普通启动，确认日志中没有
    `当前动态库未导出以下接口` 的 `RuntimeWarning`（该警告会列出缺失符号）。
@@ -573,6 +573,11 @@ lhandpro_ethercat.service
 
 对应的 unit 样例见 [deploy/lhandpro_ethercat.service](deploy/lhandpro_ethercat.service)。
 
+现场部署/快速切换配置可使用项目根目录的 `setup.py`：复制到 `~/Documents`
+（与 `aarch64/` 同级），并把 SDK 压缩包和 `RaspberryPiDemo.7z` 放在同一目录后运行。
+选择“跳过（不解压 SDK）”时只切换 preset，不修改 SDK/examples。该脚本不由
+systemd 调用。
+
 部署时通常上传整个项目，但排除：
 
 - `.git`
@@ -599,7 +604,7 @@ find . \
 
 是否进入普通启动还是主电源通断测试，由当前配置决定。
 
-注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，GPIO 业务输入会被禁用，避免停止与断开期间由按钮、抓握或手套回调重新发起通信；状态和循环计数输出仍保留。`main_power_cycle.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。脚本会在目标物理断电时刻前预留清理窗口；ECAT 预设启用硬断电截止，断开未完成也会在目标时刻物理断电，完整保持配置的断电窗口，并在下一轮重新尝试连接。systemd 服务仍建议配置足够的 `TimeoutStopSec`。
+注意：`main.py` 已处理 `SIGTERM` / `SIGINT`，收到退出信号时会停止运动、断开连接并清理 GPIO。主电源通断模式下，GPIO 业务输入会被禁用，避免停止与断开期间由按钮、抓握或手套回调重新发起通信；状态和循环计数输出仍保留。`power_cycle/main.py` 正常轮次只发送 `start_cycle` / `stop_cycle` 控制命令，不重启 `main.py` 子进程；退出或异常流程才会终止长驻子进程。脚本会在目标物理断电时刻前预留清理窗口；ECAT 预设启用硬断电截止，断开未完成也会在目标时刻物理断电，完整保持配置的断电窗口，并在下一轮重新尝试连接。systemd 服务仍建议配置足够的 `TimeoutStopSec`。
 
 ## 绿联 USB-to-RS485 适配器识别问题
 
@@ -710,12 +715,12 @@ SSH 到 `ubuntu@192.168.137.137`，检查绿联 USB-to-RS485 是否被识别。�
 systemd lhandpro_ethercat.service
   └─ launch.py                 # 唯一入口
        ├─ 读 active_config.py  # ACTIVE_PRESET 决定模式
-       ├─ 读 config.py         # 展开 preset + sequences
+       ├─ 读 app/config.py      # 展开 preset + sequences
        ├─ [enable_main_power_cycle=False] N × main.py
-       └─ [enable_main_power_cycle=True]  main_power_cycle.py → 受控 main.py
+       └─ [enable_main_power_cycle=True]  power_cycle/main.py → 受控 main.py
 ```
 
-- **模式切换只动 `active_config.py`**（GPIO `config_switcher` 或手动编辑），重启后仍由 service 拉起。
+- **模式切换只动 `active_config.py`**（GPIO `app/config_switcher.py`、`~/Documents/setup.py` 或手动编辑），重启后仍由 service 拉起。
 - `launch.py` 监督子进程，`main.py` 异常退出按当前 preset 重拉。
 - unit 样例：[deploy/lhandpro_ethercat.service](deploy/lhandpro_ethercat.service)；部署说明：[deploy/README.md](deploy/README.md)。
-- `config_switcher` 使用明文 sudo 密码执行重启（现场约定，按需求保留）。
+- `app/config_switcher.py` 使用明文 sudo 密码执行重启（现场约定，按需求保留）。

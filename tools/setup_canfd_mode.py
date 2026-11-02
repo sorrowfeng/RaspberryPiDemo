@@ -29,6 +29,11 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
+# vendored gsusb_canfd 现在位于 device/canfd/ 下
+CANFD_DIR = os.path.join(BASE_DIR, "device", "canfd")
+if CANFD_DIR not in sys.path:
+    sys.path.insert(0, CANFD_DIR)
+
 
 def filter_sudo_stderr(stderr: str) -> str:
     return "\n".join(

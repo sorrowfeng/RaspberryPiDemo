@@ -1,6 +1,13 @@
 """Quick UDP glove listener test."""
 
-from udp_receiver import UDPReceiver
+import os
+import sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from device.udp_receiver import UDPReceiver
 
 
 def glove_data_callback(glove_data_list):

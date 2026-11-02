@@ -16,7 +16,7 @@ from ctypes import (
     POINTER, byref,
 )
 
-from lhandprolib_loader import (
+from device.lhandprolib_loader import (
     get_global_lhandpro_lib,
     LER_NONE, LER_PARAMETER, LER_KEY_FUNC_UNINIT, LER_GET_CONFIGURATION,
     LER_DATA_ANOMALY, LER_COMM_CONNECT, LER_COMM_SEND, LER_COMM_RECV,

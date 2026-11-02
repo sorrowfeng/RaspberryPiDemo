@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""现场部署 / 快速切换配置工具。
+
+用法：复制到树莓派 `~/Documents`（与 `aarch64/` 同级）后运行 `python3 setup.py`。
+
+- 选择 SDK 包：解压 SDK、清理 examples、解压 RaspberryPiDemo.7z，再切换 preset；
+- 选择“跳过（不解压 SDK）”：只切换 preset，不改动 SDK/examples。
+
+systemd 服务不调用本脚本；日常开机启动仍由 `launch.py` 负责。
+"""
 
 import glob
 import importlib.util
@@ -106,7 +115,9 @@ def load_preset_metadata(file_path):
     spec.loader.exec_module(module)
     display_name = getattr(module, "DISPLAY_NAME", "")
     if not display_name or "?" in display_name:
-        basename = os.path.splitext(os.path.basename(file_path))[0].removeprefix("config_")
+        basename = os.path.splitext(os.path.basename(file_path))[0]
+        if basename.startswith("config_"):
+            basename = basename[len("config_"):]
         display_name = basename.replace("_", " / ")
     return display_name, module.PRESET
 
@@ -282,9 +293,10 @@ def main_wrapper(stdscr):
         if sdk_file is None:
             return
 
-        step2_extract_sdk(stdscr, sdk_file)
-        step3_clean_examples(stdscr)
-        step4_extract_demo(stdscr)
+        if sdk_file != "SKIP":
+            step2_extract_sdk(stdscr, sdk_file)
+            step3_clean_examples(stdscr)
+            step4_extract_demo(stdscr)
 
         preset_file = step5_select_preset(stdscr)
         if preset_file is None:

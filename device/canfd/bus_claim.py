@@ -20,8 +20,8 @@ import logging
 import os
 import time
 
-import canfd_lib
-from main_runtime_control import RUNTIME_DIR, is_pid_running
+from device.canfd import canfd_lib
+from app.runtime_control import RUNTIME_DIR, is_pid_running
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +37,9 @@ CLAIM_WRITE_GRACE_SECONDS = 2.0
 GSUSB_DRIVER_KEYS = ("gsusb", "gsusb-canfd", "gsusb_canfd")
 
 _GsUsbBackend = getattr(canfd_lib, "_GsUsbCANFD", None)
-if _GsUsbBackend is None:  # pragma: no cover - 仅当 canfd_lib.py 被换成其它版本
+if _GsUsbBackend is None:  # pragma: no cover - 仅当 device/canfd/canfd_lib.py 被换成其它版本
     raise RuntimeError(
-        "canfd_lib.py 中没有 _GsUsbCANFD，canfd_bus_claim 依赖它实现跨进程总线占用登记；"
+        "device/canfd/canfd_lib.py 中没有 _GsUsbCANFD，bus_claim 依赖它实现跨进程总线占用登记；"
         "请对照 SDK 的 examples/CANFD_python/canfd_lib.py 重新同步该文件"
     )
 
