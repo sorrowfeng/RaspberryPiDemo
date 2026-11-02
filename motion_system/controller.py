@@ -29,6 +29,9 @@ from .runtime_state import MotionRuntimeState
 class MotionController:
     """Top-level coordinator that wires all runtime components together."""
 
+    # 开机早期 CANFD/ECAT 设备可能尚未就绪；首次连接失败后按此间隔自动重试。
+    AUTO_CONNECT_RETRY_INTERVAL_SECONDS = 5.0
+
     def __init__(
         self,
         communication_mode: str,
@@ -50,6 +53,7 @@ class MotionController:
         self.shutdown_requested = threading.Event()
         self._cleanup_lock = threading.Lock()
         self._cleaned_up = False
+        self._next_auto_connect_at = 0.0
 
     def request_shutdown(self, reason: str = ""):
         if reason:
@@ -292,6 +296,20 @@ class MotionController:
             self.session.enable_gpio = False
         self._log_gpio_summary(managed_control=managed_control)
 
+    def _auto_connect_once(self) -> bool:
+        logging.info("正在尝试自动连接设备...")
+        if not self.session.connect():
+            logging.error("设备自动连接失败")
+            self.session.set_disconnected_status()
+            return False
+
+        logging.info("设备自动连接成功")
+        self.session.set_connected_status()
+        if FEATURE_FLAGS["auto_cycle_running"]:
+            logging.info("自动开始执行循环运动")
+            self.on_start_motion()
+        return True
+
     def _handle_auto_connect(self) -> int:
         if not FEATURE_FLAGS["auto_connect"]:
             logging.info("自动连接已禁用，等待手动连接")
@@ -301,18 +319,30 @@ class MotionController:
             logging.error("自动连接已禁用且 GPIO 未启用，程序退出")
             return -1
 
-        logging.info("正在尝试自动连接设备...")
-        if not self.session.connect():
-            logging.error("设备自动连接失败")
-            self.session.set_disconnected_status()
+        if not self._auto_connect_once():
+            self._next_auto_connect_at = (
+                time.monotonic() + self.AUTO_CONNECT_RETRY_INTERVAL_SECONDS
+            )
             return 0 if self.session.enable_gpio else -1
-
-        logging.info("设备自动连接成功")
-        self.session.set_connected_status()
-        if FEATURE_FLAGS["auto_cycle_running"]:
-            logging.info("自动开始执行循环运动")
-            self.on_start_motion()
         return 0
+
+    def _retry_auto_connect_if_needed(self):
+        if not FEATURE_FLAGS["auto_connect"]:
+            return
+        if self.session.controller.is_connected:
+            return
+
+        now = time.monotonic()
+        if now < self._next_auto_connect_at:
+            return
+
+        self._next_auto_connect_at = now + self.AUTO_CONNECT_RETRY_INTERVAL_SECONDS
+        logging.warning(
+            "设备仍未连接，%.1fs 后自动重试",
+            self.AUTO_CONNECT_RETRY_INTERVAL_SECONDS,
+        )
+        if self._auto_connect_once():
+            logging.info("自动重连成功")
 
     def _cleanup(self):
         with self._cleanup_lock:
@@ -355,6 +385,8 @@ class MotionController:
                     break
                 if managed_control:
                     self._poll_control_command()
+                else:
+                    self._retry_auto_connect_if_needed()
                 if keyboard.is_pressed("esc"):
                     logging.info("Esc 键按下，正在退出...")
                     break

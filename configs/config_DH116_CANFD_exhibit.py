@@ -1,7 +1,7 @@
 DISPLAY_NAME = "DH116 / CANFD / exhibit"
 
 PRESET = {
-    "communication": {"default_mode": "CANFD", "default_launch_count": 4},
+    "communication": {"default_mode": "CANFD", "default_launch_count": 2},
     "device": {
         "current_hand_type": "LAC_DOF_6",
         "canfd_node_id": 1,
