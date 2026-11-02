@@ -307,7 +307,10 @@ class ClaimAwareGsUsbCANFD(_GsUsbBackend):
             )
             start = 0
 
-        for target in candidates[start:]:
+        # 从 device_index 指定的候选开始，失败/被占用时回绕到前面的候选，
+        # 保证某个 hand 未就绪时不会让另一个实例永远抢不到另一条总线。
+        ordered = candidates[start:] + candidates[:start]
+        for target in ordered:
             if not self._registry.try_acquire(target):
                 logger.warning(
                     "并发抢占失败，顺延下一个候选: %s", adapter_label(target)

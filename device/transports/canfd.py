@@ -81,15 +81,17 @@ class CanfdTransportMixin:
             return False
 
         # 处理设备索引
-        if getattr(self.canfd, "claim_aware", False) and device_index is not None:
-            # 多实例由 runtime/canfd_claims/ 的占用登记分配总线，device_index 不再表示
-            # 物理位置（USB 枚举顺序本身不稳定），统一改成"取第一条空闲总线"。
+        claim_aware = getattr(self.canfd, "claim_aware", False)
+        if claim_aware and device_index is not None:
+            # 多实例由 runtime/canfd_claims/ 的占用登记分配总线。device_index 不再
+            # 表示固定物理位置，但作为"优先从第几条空闲总线开始尝试"的起点：
+            # 这样开机时某个 hand 尚未就绪、连接又很快失败时，不同 main.py 不会
+            # 反复抢同一条总线，另一个实例可以优先尝试下一条。
             logger.info(
-                "gs_usb 总线由跨进程占用登记分配，忽略 device_index=%s；"
-                "各 main.py 自动取第一条空闲总线",
+                "gs_usb 总线由跨进程占用登记分配；device_index=%s 作为优先候选起点"
+                "（索引超出当前空闲数时回到第一条空闲总线）",
                 device_index,
             )
-            device_index = 0
 
         if device_index is None:
             if device_count == 1:
@@ -119,7 +121,9 @@ class CanfdTransportMixin:
                     except ValueError:
                         print("请输入数字")
         else:
-            if not (0 <= device_index < device_count):
+            # claim-aware 后端会把越界索引降级为第一条空闲总线，由占用登记
+            # 决定最终归属；其它后端仍严格校验索引。
+            if not claim_aware and not (0 <= device_index < device_count):
                 logger.error(
                     "CANFD 设备索引无效: device_index=%s, device_count=%s",
                     device_index,
@@ -129,7 +133,7 @@ class CanfdTransportMixin:
                 self.lhp = None
                 self.canfd = None
                 return False
-            logger.info("使用指定设备索引: %s", device_index)
+            logger.info("使用优先设备索引: %s", device_index)
 
         # 连接CANFD设备
         logger.info(

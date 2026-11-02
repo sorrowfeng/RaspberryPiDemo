@@ -415,10 +415,11 @@ gs_usb（pyusb）**没有设备独占语义**：`scan_adapters()` 始终列出�
 - 创建占位到写入 pid 之间有极短窗口，该窗口内（`CLAIM_WRITE_GRACE_SECONDS=2s`）的
   占位一律视为已占用，避免把别的进程刚建好的占位当失效文件删掉。
 
-**device_index 在 gsusb 后端不再表示物理位置**：总线由占用登记分配，`_connect_canfd`
-会忽略 `--device-index=N`（`launch.py` 在 `launch_count>1` 时对所有模式都会传它）并记一条
-日志，各进程统一"取第一条空闲总线"。原因是 USB 枚举顺序本身不稳定，按序号固定物理
-对应关系并不可靠；需要固定"某适配器 ↔ 某只手"时应改用序列号定位（尚未做成配置项）。
+**device_index 在 gsusb 后端不再表示固定物理位置**：总线由占用登记分配，
+`--device-index=N` 只作为"优先从第 N 条空闲总线开始尝试"的候选起点；索引超出当前空闲数
+时回到第一条，并在候选失败/被占用时回绕尝试其余总线。这样开机某只手尚未就绪、连接很快
+失败时，另一个实例不会反复抢同一条总线，而是优先尝试另一条。USB 枚举顺序本身仍不稳定，
+需要固定"某适配器 ↔ 某只手"时应改用序列号定位（尚未做成配置项）。
 
 用假 pyusb 设备 + 真实多进程验证过的行为：
 
@@ -448,7 +449,7 @@ sudo python3 tools/setup_canfd_mode.py     # 逐个打印 serial/bus/addr，并�
   （内核 gs_usb + `pip install 'python-can~=4.6.1'`），USB 由内核批处理，吞吐更好。
 
 `channel_index` 在 gsusb 后端被忽略（单通道型号）；`device_index` 是
-`scan_adapters()` 的枚举序号，插拔/重启后可能变化。`gsusb_canfd` 的 `DeviceSelector`
+`scan_adapters()` 的枚举序号作为候选起点，插拔/重启后可能变化。`gsusb_canfd` 的 `DeviceSelector`
 支持按 USB `serial` 定位，需要时可用它把「适配器 ↔ 进程」固定下来。
 
 CANFD 只保留 gs_usb 与 socketcan 两条路径，不再保留厂商动态库回退。
