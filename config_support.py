@@ -32,7 +32,7 @@ DEFAULT_ACTIVE_PRESET = "configs.config_runtime_default"
 
 # CANFD 传输后端。gsusb = 纯用户态 gs_usb（pyusb + 项目内 vendored gsusb_canfd），
 # 与 SDK 示例的默认后端一致；设为 None 则由 canfd_lib 运行期择优，
-# 也可显式指定 "socketcan" / "libcanbus" / "hcanbus"。
+# 也可显式指定 "socketcan"。
 DEFAULT_CANFD_DRIVER = CANFD_DRIVER_DEFAULT
 
 
@@ -219,6 +219,9 @@ def build_runtime_configuration(
     }
 
     feature_flags = deepcopy(preset["features"])
+    # 可选功能开关在 preset 中可省略；这里补默认值，避免运行时代码直接下标访问时
+    # 因旧 preset 没有该键而 KeyError。
+    feature_flags.setdefault("enable_main_power_cycle", False)
 
     return {
         "communication": communication_config,

@@ -7,7 +7,7 @@ CANFD 适配器。这条路径要求：
 1. 装了 pyusb，且能找到 libusb-1.0；
 2. 内核 gs_usb 驱动**没有**绑定适配器（内核驱动和 pyusb 抢同一个 USB 接口，
    谁先绑定谁独占）；
-3. 非 root 运行时，udev 规则给了适配器读写权限（lib/hcanbus.rules）。
+3. 非 root 运行时，udev 规则给了适配器读写权限（见 `UDEV_RULE_FILE`）。
 
 本脚本只做检查与修复，不改动项目配置。
 """
@@ -20,7 +20,10 @@ SUDO_PASSWORD = "leadshine"
 GS_USB_MODULE = "gs_usb"
 ADAPTER_USB_IDS = ("a8fa", "8598")
 UDEV_RULES_DIR = "/etc/udev/rules.d"
-UDEV_RULE_FILE = "hcanbus.rules"
+UDEV_RULE_FILE = "99-lhandpro-canfd.rules"
+UDEV_RULE_TEXT = (
+    'SUBSYSTEM=="usb", ATTR{idVendor}=="a8fa", ATTR{idProduct}=="8598", MODE="0666"'
+)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
@@ -133,14 +136,39 @@ def ensure_gs_usb_unbound() -> bool:
     return False
 
 
+def find_udev_rule():
+    """在已安装的 rules 中查找覆盖本项目适配器 USB ID 的规则。"""
+    try:
+        names = sorted(os.listdir(UDEV_RULES_DIR))
+    except OSError:
+        return None
+
+    for name in names:
+        if not name.endswith(".rules"):
+            continue
+        path = os.path.join(UDEV_RULES_DIR, name)
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as file_obj:
+                content = file_obj.read().lower()
+        except OSError:
+            continue
+        if all(usb_id in content for usb_id in ADAPTER_USB_IDS):
+            return path
+    return None
+
+
 def check_udev_rule() -> None:
     print("[3/4] 检查 udev 权限规则 ...")
-    rule_path = os.path.join(UDEV_RULES_DIR, UDEV_RULE_FILE)
-    if os.path.exists(rule_path):
-        print(f"  OK: {rule_path} 已存在")
+    rule_path = find_udev_rule()
+    if rule_path:
+        print(f"  OK: {rule_path} 已覆盖本项目适配器")
         return
-    print(f"  提示: 未安装 {rule_path}，非 root 运行可能无法打开适配器")
-    print(f"  修复: sudo cp lib/{UDEV_RULE_FILE} {UDEV_RULES_DIR}/ && sudo udevadm control --reload")
+    rule_path = os.path.join(UDEV_RULES_DIR, UDEV_RULE_FILE)
+    print(f"  提示: 未找到覆盖 {'/'.join(ADAPTER_USB_IDS)} 的 udev 规则，"
+          "非 root 运行可能无法打开适配器")
+    print(f"  修复: 将下面一行写入 {rule_path}，然后执行 "
+          "sudo udevadm control --reload")
+    print(f"    {UDEV_RULE_TEXT}")
 
 
 def scan_adapters():

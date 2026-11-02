@@ -296,28 +296,29 @@ tools/setup_rs485_mode.py
 
 ## CANFD 传输后端（gs_usb）
 
-### 为什么不再用 libcanbus
+### 为什么选择 gs_usb
 
-CANFD 原来走厂商的 `libcanbus.so`（`lib/libcanbus_arm64.tar` → `/usr/local/lib/`，配
-`hcanbus.rules`）。该库是**同一个硬件的厂商用户态 libusb 实现**（`strings` 里自称
-`HCANFD Mini-I`），而这块适配器的 USB ID 是 `a8fa:8598`，**本身就是 gs_usb 协议设备**：
+这块适配器的 USB ID 是 `a8fa:8598`，**本身就是 gs_usb 协议设备**：
 
-- `gsusb_canfd` 把 `(0xA8FA, 0x8598)` 列为已知设备，且它就是该库的 `DEFAULT_VID/DEFAULT_PID`；
-- 厂商自带的 `lib/socketcan初始化测试指令.txt` 就是这台硬件的 gs_usb 用法
+- `gsusb_canfd` 把 `(0xA8FA, 0x8598)` 列为已知设备，且它就是默认 VID/PID；
+- SDK 自带的 socketcan 测试指令就是这台硬件的 gs_usb 用法
   （`modprobe gs_usb` + `echo "a8fa 8598" > .../new_id` + `ip link set can0 ... fd on`）。
 
-因此改用 gs_usb **不需要换硬件**，而且可以去掉 Pi 上安装 `libcanbus.so` 的步骤。
-现在项目用的是 SDK 示例同源的实现：
+因此项目直接使用 gs_usb，**不需要在 Pi 上安装任何厂商动态库**。现在项目用的是
+SDK 示例同源的实现：
 
 | 项目文件 | 来源 | 说明 |
 | --- | --- | --- |
-| `canfd_lib.py` | SDK 包 `.../examples/CANFD_python/canfd_lib.py` | 46 KB 版，含 gsusb / socketcan / libcanbus / hcanbus 四后端 + `CANFD()` 工厂 |
+| `canfd_lib.py` | SDK 包 `.../examples/CANFD_python/canfd_lib.py` | gsusb / socketcan 双后端 + `CANFD()` 工厂 |
 | `gsusb_canfd/` | SDK 包 `.../examples/CANFD_python/gsusb_canfd/` | 上游 `gsusb-canfd` 0.1.3（MIT），纯用户态 gs_usb，依赖 pyusb |
+
+注意：本仓库的 `canfd_lib.py` 已裁剪为只保留 gsusb / socketcan 两条后端路径；
+从 SDK 重新同步该文件时，需要保留这份裁剪，否则会重新引入已废弃的厂商后端。
 
 ### 后端选择
 
-`canfd_lib.CANFD(driver=...)` 是工厂函数，可选值 `gsusb` / `socketcan` / `libcanbus` /
-`hcanbus`；不传或传 `None` 时由 `_AutoCANFD` 运行期择优（优先 gsusb，扫不到再回退）。
+`canfd_lib.CANFD(driver=...)` 是工厂函数，可选值 `gsusb` / `socketcan`；
+不传或传 `None` 时由 `_AutoCANFD` 运行期择优（优先 gsusb，扫不到再回退到 socketcan）。
 项目在 preset 的 `features` 里用 `canfd_driver` 固定后端，缺省值见
 `config_support.DEFAULT_CANFD_DRIVER`（当前 **`"gsusb"`**）：
 
@@ -341,8 +342,9 @@ pip install 'pyusb>=1.2.1'
 
 `gsusb_canfd` 已随项目 vendored 到项目根目录（`canfd_lib.py` 的源码搜索根第一个就是
 项目根），不需要 pip 安装；它要求自身 `>= 0.1.2`（`open(adapter)` 与
-`BusConfig.drop_echo`），vendored 版本是 0.1.3。udev 规则 `lib/hcanbus.rules`
-（`a8fa:8598` MODE=0666）**继续需要**，非 root 运行时靠它拿权限。
+`BusConfig.drop_echo`），vendored 版本是 0.1.3。udev 权限规则（适配器
+`a8fa:8598` → `MODE=0666`）**继续需要**，非 root 运行时靠它拿权限；
+`tools/setup_canfd_mode.py` 会扫描 `/etc/udev/rules.d/*.rules` 检查是否已有匹配规则。
 
 ### 内核 gs_usb 与 pyusb 互斥
 
@@ -398,11 +400,10 @@ lhandpro_controller.py:201    canfd_dat_baudrate: int = 5000000   # 例如降到
 
 CANFD preset 基本都是 `default_launch_count: 4`（4 个 main.py = 4 个适配器）。
 
-厂商 libcanbus 独占打开设备后，后续进程的 `CAN_ScanDevice()` 不会再列出该总线，所以
-每个新起的 main.py 都能自动拿到一条空闲总线。gs_usb（pyusb）**没有**这个性质：
-`scan_adapters()` 始终列出全部适配器，而且 `CanFdBus.open()` 不调用 `claim_interface`，
-多个进程会静默打开同一个适配器、两路 CAN 流量互相干扰（表现为随机的 SDO 超时 /
-`LER_COMM_RECV(7)`）。为此 [canfd_bus_claim.py](/D:/Project/PyProject/RaspberryPiDemo/canfd_bus_claim.py)
+gs_usb（pyusb）**没有设备独占语义**：`scan_adapters()` 始终列出全部适配器，而且
+`CanFdBus.open()` 不调用 `claim_interface`，多个进程会静默打开同一个适配器、两路 CAN
+流量互相干扰（表现为随机的 SDO 超时 / `LER_COMM_RECV(7)`）。为此
+[canfd_bus_claim.py](/D:/Project/PyProject/RaspberryPiDemo/canfd_bus_claim.py)
 实现了应用层的跨进程总线占用登记：
 
 - 每个适配器对应一个占位文件 `runtime/canfd_claims/<标识>.claim`，内容记录持有者 pid；
@@ -450,21 +451,19 @@ sudo python3 tools/setup_canfd_mode.py     # 逐个打印 serial/bus/addr，并�
 `scan_adapters()` 的枚举序号，插拔/重启后可能变化。`gsusb_canfd` 的 `DeviceSelector`
 支持按 USB `serial` 定位，需要时可用它把「适配器 ↔ 进程」固定下来。
 
-回退参考：改用 gs_usb 之前的 `canfd_lib.py` 是 19,875 B / sha256 `67FFF376…`，
-需要时可从 git 历史取回；`lib/libcanbus*.tar`、`lib/HCanbus.dll` 仍保留在仓库里
-（Windows 与 `canfd_driver="libcanbus"` 回退路径仍然可用）。
+CANFD 只保留 gs_usb 与 socketcan 两条路径，不再保留厂商动态库回退。
 
 ## SDK 版本与升级
 
 ### 当前版本
 
-项目内置的 SDK 副本已更新到 **LHandProLib aarch64 20261014**
-（`build.utc_time = 2026-10-14T07:01:26Z`，`source_rev = 27f608f`）。
+项目内置的 SDK 副本已更新到 **LHandProLib aarch64 20261031**
+（`build.utc_time = 2026-10-31T01:11:42Z`，`source_rev = e1f485e`）。
 
 来源包：
 
 ```text
-D:\Project\HandProject\LHandProLib\packages\20261014\LHandProLib-API-Linux-aarch64-20261014.tar.gz
+D:\Project\HandProject\LHandProLib\packages\20261031\LHandProLib-API-Linux-aarch64-20261031.tar.gz
 ```
 
 项目内对应的文件：
@@ -472,9 +471,9 @@ D:\Project\HandProject\LHandProLib\packages\20261014\LHandProLib-API-Linux-aarch
 | 项目文件 | 来源 | 说明 |
 | --- | --- | --- |
 | `lib/LHandProLib.h` | `aarch64/include/LHandProLib/LHandProLib.h` | 与 `lhandprolib_loader.py` 的原型表一一对应 |
+| `lib/LHandProLib.hpp` | `aarch64/include/LHandProLib/LHandProLib.hpp` | C++ 头文件，随包附带 |
 | `lib/libLHandProLib.so` | `aarch64/lib/libLHandProLib.so` | release 版；改用 Debug 版时为 `libLHandProLibd.so` |
-| `lib/LHandProLib.dll` | Windows 包 `x64/bin/LHandProLib.dll` | 本机 Windows 联调用，已同步到 20261014 |
-| `lib/HCanbus.dll` / `lib/hcanbus.rules` / `lib/libcanbus*.tar` | `.../CANFD_python/lib/` | 与 20261014 逐字节一致，无需替换 |
+| `lib/LHandProLib.dll` | Windows 包 `x64/bin/LHandProLib.dll` | **仍为 20261014**；20261031 只发布了 Linux aarch64 / macOS 包 |
 
 该包要求客户机 **glibc ≥ 2.17**，且已静态链接 libstdc++/libgcc，不依赖目标机的
 `libstdc++` 版本；只有 CANFD 示例额外需要 `libusb-1.0.so.0`（由系统提供）。
@@ -503,7 +502,7 @@ SDK 安装目录而不更新项目 `lib/` 不会生效**；反之只更新项目
 20260921 起 SDK 新增 `C_LAC_DOF_6_V2`（DH116V2），`LAC_DOF_6_S` 与 `LAC_DOF_16`
 的取值整体后移。这些值直接传给 `lhandprolib_set_hand_type`，**新旧库不能混用**：
 
-| 枚举 | 旧值 | 20261014 |
+| 枚举 | 旧值 | 20261031 |
 | --- | --- | --- |
 | `LAC_DOF_6` | 0 | 0 |
 | `LAC_DOF_6_V2` | 不存在 | **1** |
@@ -514,27 +513,29 @@ SDK 安装目录而不更新项目 `lib/` 不会生效**；反之只更新项目
 `lhandprolib_loader.py` 已同步这些取值，`HAND_TYPE_MAP` 也已支持 `LAC_DOF_6_V2` 和
 `LAC_DOF_GENERIC`。preset 里的 `current_hand_type` 仍写字符串名，不需要改动。
 
-Linux `.so` 与 Windows `lib/LHandProLib.dll` 都已同步到 20261014，两边的
-`lhandprolib_loader._FUNCTION_TABLE` 共 114 个符号**全部解析成功、无缺失符号警告**。
-因为枚举取值与库版本绑定，**回退时两个平台都要一起退**：
+Linux `.so` 已同步到 20261031，`lhandprolib_loader._FUNCTION_TABLE` 共 115 个符号
+**全部解析成功、无缺失符号警告**。Windows `lib/LHandProLib.dll` 仍为 20261014，
+两平台枚举取值一致但库版本不同，升级/回退时应以对应平台包为准：
 
-| 平台 | 20261014 | 回退参考（升级前） |
+| 平台 | 20261031 | 回退参考（升级前） |
 | --- | --- | --- |
-| Linux aarch64 | `lib/libLHandProLib.so` 1,899,096 B | 用旧包的 `aarch64/lib/libLHandProLib.so` |
-| Windows x64 | `lib/LHandProLib.dll` 201,216 B | 177,664 B / sha256 `379b7626…871b22` |
+| Linux aarch64 | `lib/libLHandProLib.so` 1,902,232 B / sha256 `d321b6d8…ce907e` | 用旧包的 `aarch64/lib/libLHandProLib.so` |
+| Windows x64 | 未更新，仍为 20261014 `lib/LHandProLib.dll` 201,216 B | 177,664 B / sha256 `379b7626…871b22` |
 
 ### 新增 API
 
-20261014 相对项目上一版头文件新增 5 个接口，均已加入 loader 原型表：
+20261031 相对 20261014 新增 1 个接口，已加入 loader 原型表和 wrapper：
 
 ```text
-lhandprolib_rs485_shared_bus_set_transaction_interval   # 共享总线事务间隔
-lhandprolib_set_rs485_transaction_interval              # 单实例 RS485 事务间隔
-lhandprolib_set_ota_send_data / lhandprolib_get_ota_recv_data   # OTA 固件升级
-lhandprolib_apply_motion_params                         # 立即应用目标速度/电流修改
+lhandprolib_set_ecat_sdo_callback   # EtherCAT CoE SDO 传输回调
 ```
 
-`wrapper` 目前未封装这 5 个接口；需要时通过 `LHandProLibLoader.lib` 直接调用。
+回调签名 `bool(index, subindex, is_write, value, out_value)`，Python 侧通过
+`PyLHandProLib.set_ecat_sdo_callback()` 注册；必须在 `initial(LCN_ECAT)` 之前设置，
+且 EtherCAT 主站已 `run()`。未注册时 ECAT 初始化跳过 SDO 自识别，保持旧行为。
+
+20261014 相对上一版新增的 5 个接口（共享总线事务间隔、单实例 RS485 事务间隔、
+OTA、`apply_motion_params`）保持不变，wrapper 仍未全部封装。
 
 ### 升级步骤
 

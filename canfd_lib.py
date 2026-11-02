@@ -1,35 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-CANFD通信库封装
+CANFD 通信库封装
 提供扫描、连接、断开、发送以及接收回调功能
 
-平台与驱动（默认优先 gsusb-canfd，不可用或无设备时自动回退到平台原生后端）:
-  Windows:    gsusb-canfd（pyusb + 随示例附带的 libusb-1.0.dll）
-              → HCanbus.dll（ctypes）
-  Linux:      gsusb-canfd（pyusb）
-              → "socketcan"（python-can）或 "libcanbus"（厂商 .so）
-              优先级: USE_LIBCANBUS 宏 > driver 参数
+后端（默认 gsusb-canfd，Linux 上可回退 socketcan）:
+  默认        : gsusb-canfd —— pyusb + gs_usb 用户态驱动，
+                Windows / Linux / macOS 通用，不依赖任何厂商 DLL/SO
+  Linux 预留  : socketcan（python-can）—— 仅当 gsusb 不可用或扫不到适配器时回退
 
-driver 参数可强制指定后端（不做回退，失败即抛 CANFDException）:
-  "gsusb" / "hcanbus" / "socketcan" / "libcanbus"
+driver 参数可强制指定后端（不回退，失败即抛 CANFDException）:
+  "gsusb" / "socketcan"
 
-gsusb-canfd 是纯用户态 gs_usb 实现，与 C++ 示例的默认后端同源（上游
-gsusb-canfd 仓库的 Python 包），Windows / Linux / macOS 共用同一段逻辑。
+环境变量 LHANDPRO_CANFD_DRIVER 可免改代码切换后端，取值同 driver。
 """
-
-# 设为 True 时优先使用 gsusb-canfd（用户态 gs_usb 驱动，与 C++ 默认后端一致）。
-# 置为 False 表示跳过 gsusb，直接使用平台原生后端。
-USE_GSUSB_CANFD = True
-
-# 设为 True 时使用 Linux 厂商 libcanbus.so；False 时使用 socketcan（python-can）
-USE_LIBCANBUS = False
 
 import os
 import sys
 import threading
 import time
-import ctypes
 from typing import Optional, Callable
 
 # 常量定义
@@ -344,237 +333,12 @@ class _GsUsbCANFD:
 
 
 # =============================================================================
-# Windows 实现：通过 ctypes 调用 HCanbus.dll
+# Linux 预留后端：socketcan（python-can）
 # =============================================================================
 
-if IS_WINDOWS:
-    import ctypes.wintypes
-
-    class DevInfo(ctypes.Structure):
-        _fields_ = [
-            ("HW_Type", ctypes.c_char * 32),
-            ("HW_Ser",  ctypes.c_char * 32),
-            ("HW_Ver",  ctypes.c_char * 32),
-            ("FW_Ver",  ctypes.c_char * 32),
-            ("MF_Date", ctypes.c_char * 32),
-        ]
-
-    class CanFDConfig(ctypes.Structure):
-        _fields_ = [
-            ("NomBaud",  ctypes.c_uint),
-            ("DatBaud",  ctypes.c_uint),
-            ("NomPre",   ctypes.c_ushort),
-            ("NomTseg1", ctypes.c_ubyte),
-            ("NomTseg2", ctypes.c_ubyte),
-            ("NomSJW",   ctypes.c_ubyte),
-            ("DatPre",   ctypes.c_ubyte),
-            ("DatTseg1", ctypes.c_ubyte),
-            ("DatTseg2", ctypes.c_ubyte),
-            ("DatSJW",   ctypes.c_ubyte),
-            ("Config",   ctypes.c_ubyte),
-            ("Model",    ctypes.c_ubyte),
-            ("Cantype",  ctypes.c_ubyte),
-        ]
-
-    class CanFDMsg(ctypes.Structure):
-        _fields_ = [
-            ("ID",         ctypes.c_uint),
-            ("TimeStamp",  ctypes.c_uint),
-            ("FrameType",  ctypes.c_ubyte),
-            ("DLC",        ctypes.c_ubyte),
-            ("ExternFlag", ctypes.c_ubyte),
-            ("RemoteFlag", ctypes.c_ubyte),
-            ("BusSatus",   ctypes.c_ubyte),
-            ("ErrSatus",   ctypes.c_ubyte),
-            ("TECounter",  ctypes.c_ubyte),
-            ("RECounter",  ctypes.c_ubyte),
-            ("Data",       ctypes.c_ubyte * 64),
-        ]
-
-    class _WindowsCANFD:
-        """Windows CANFD 实现（HCanbus.dll）"""
-
-        _RECV_BUF_SIZE = 500
-        _RECV_TIMEOUT_MS = 50
-        _RECV_SLEEP_MS = 0.005
-
-        def __init__(self):
-            self._dll = self._load_hcanbus_dll()
-            self._dev_index = -1
-            self._is_connected = False
-            self._receive_callback: Optional[Callable] = None
-            self._receive_thread: Optional[threading.Thread] = None
-            self._receive_running = False
-
-        @staticmethod
-        def _load_hcanbus_dll() -> ctypes.WinDLL:
-            search_paths = [
-                os.path.join(os.path.dirname(__file__), "lib", "HCanbus.dll"),
-                os.path.join(os.path.dirname(__file__), "HCanbus.dll"),
-                "HCanbus.dll",
-            ]
-            for path in search_paths:
-                if os.path.exists(path):
-                    return ctypes.WinDLL(os.path.abspath(path))
-            raise CANFDException("找不到 HCanbus.dll，请将其放在 lib/ 目录下")
-
-        def scan(self) -> int:
-            try:
-                return int(self._dll.CAN_ScanDevice())
-            except Exception as e:
-                raise CANFDException(f"扫描设备异常: {e}")
-
-        def connect(self, device_index: int = 0, channel_index: int = 0,
-                    nom_baudrate: int = 1000000, dat_baudrate: int = 5000000,
-                    nom_sampling: int = 0, dat_sampling: int = 0) -> bool:
-            if self._is_connected:
-                self.disconnect()
-
-            try:
-                ret = self._dll.CAN_OpenDevice(ctypes.c_uint(device_index))
-                if ret != 0:
-                    raise CANFDException(f"CAN_OpenDevice 失败，返回值: {ret}")
-
-                cfg = CanFDConfig()
-                cfg.Model    = 0
-                cfg.NomBaud  = nom_baudrate
-                cfg.DatBaud  = dat_baudrate
-                cfg.Config   = 0x01 | 0x02 | 0x04
-                cfg.Cantype  = 1
-
-                if nom_sampling == 0:
-                    cfg.NomPre = 2; cfg.NomTseg1 = 31; cfg.NomTseg2 = 8;  cfg.NomSJW = 5
-                else:
-                    cfg.NomPre = 2; cfg.NomTseg1 = 29; cfg.NomTseg2 = 10; cfg.NomSJW = 6
-
-                if dat_sampling == 0:
-                    cfg.DatPre = 1; cfg.DatTseg1 = 11; cfg.DatTseg2 = 4;  cfg.DatSJW = 2
-
-                ret = self._dll.CANFD_Init(ctypes.c_uint(device_index), ctypes.byref(cfg))
-                if ret != 0:
-                    self._dll.CAN_CloseDevice(ctypes.c_uint(device_index))
-                    raise CANFDException(f"CANFD_Init 失败，返回值: {ret}")
-
-                self._dev_index = device_index
-                self._is_connected = True
-
-                self._receive_running = True
-                self._receive_thread = threading.Thread(
-                    target=self._receive_loop, daemon=True)
-                self._receive_thread.start()
-
-                return True
-
-            except CANFDException:
-                raise
-            except Exception as e:
-                raise CANFDException(f"连接设备异常: {e}")
-
-        def disconnect(self) -> bool:
-            if not self._is_connected:
-                return True
-
-            self._receive_running = False
-            if self._receive_thread and self._receive_thread.is_alive():
-                self._receive_thread.join(timeout=1.0)
-
-            try:
-                self._dll.CAN_CloseDevice(ctypes.c_uint(self._dev_index))
-            except Exception:
-                pass
-
-            self._is_connected = False
-            self._dev_index = -1
-            self._receive_callback = None
-            return True
-
-        def send(self, id: int, data: bytes, frame_type: int = 0x04,
-                 extern_flag: int = 0, remote_flag: int = 0) -> bool:
-            if not self._is_connected:
-                raise CANFDException("设备未连接")
-            if len(data) > 64:
-                raise CANFDException("数据长度不能超过64字节")
-
-            msg = CanFDMsg()
-            msg.ID         = id
-            msg.FrameType  = frame_type
-            msg.DLC        = _len_to_dlc(64)
-            msg.ExternFlag = extern_flag
-            msg.RemoteFlag = remote_flag
-
-            ctypes.memset(msg.Data, 0, 64)
-            for i, b in enumerate(data[:64]):
-                msg.Data[i] = b
-
-            ret = self._dll.CANFD_Transmit(
-                ctypes.c_uint(self._dev_index),
-                ctypes.byref(msg),
-                ctypes.c_uint(1),
-                ctypes.c_int(100)
-            )
-            return ret == 1
-
-        def set_receive_callback(self, callback: Optional[Callable[[dict], None]]) -> None:
-            self._receive_callback = callback
-
-        def _receive_loop(self) -> None:
-            MsgArray = CanFDMsg * self._RECV_BUF_SIZE
-            msgs = MsgArray()
-            while self._receive_running:
-                if not self._is_connected:
-                    time.sleep(0.01)
-                    continue
-
-                count = self._dll.CANFD_Receive(
-                    ctypes.c_uint(self._dev_index),
-                    msgs,
-                    ctypes.c_uint(self._RECV_BUF_SIZE),
-                    ctypes.c_int(self._RECV_TIMEOUT_MS)
-                )
-
-                if count > 0 and self._receive_callback:
-                    for i in range(count):
-                        m = msgs[i]
-                        data_len = DLC2LEN[m.DLC] if m.DLC < len(DLC2LEN) else 64
-                        canfd_msg = {
-                            "id":          m.ID,
-                            "timestamp":   m.TimeStamp,
-                            "frame_type":  m.FrameType,
-                            "dlc":         m.DLC,
-                            "data_len":    data_len,
-                            "extern_flag": m.ExternFlag,
-                            "remote_flag": m.RemoteFlag,
-                            "bus_status":  m.BusSatus,
-                            "err_status":  m.ErrSatus,
-                            "te_counter":  m.TECounter,
-                            "re_counter":  m.RECounter,
-                            "data":        bytes(m.Data[:data_len]),
-                        }
-                        try:
-                            self._receive_callback(canfd_msg)
-                        except Exception as e:
-                            print(f"CANFD接收回调异常: {e}")
-
-                time.sleep(self._RECV_SLEEP_MS)
-
-        @property
-        def is_connected(self) -> bool:
-            return self._is_connected
-
-        def __del__(self):
-            try:
-                if self._is_connected:
-                    self.disconnect()
-            except Exception:
-                pass
-
-
-# =============================================================================
-# Linux 实现 A: socketcan（python-can，默认）
-# =============================================================================
-
-else:
+if not IS_WINDOWS:
     class _LinuxSocketcanCANFD:
+
         """Linux CANFD 实现 — socketcan（python-can）"""
 
         def __init__(self):
@@ -778,327 +542,48 @@ else:
                 pass
 
 
-    # =========================================================================
-    # Linux 实现 B: 厂商 libcanbus.so（通过 USE_LIBCANBUS / driver 参数切换）
-    # =========================================================================
-
-    from ctypes import (
-        CDLL, POINTER, RTLD_GLOBAL, Structure, byref,
-        c_char, c_int, c_ubyte, c_uint, c_uint16, c_uint32, c_ushort, cast, cdll,
-    )
-
-    class _CanFD_Config(Structure):
-        _fields_ = [
-            ("NomBaud", c_uint),
-            ("DatBaud", c_uint),
-            ("NomPre", c_ushort),
-            ("NomTseg1", c_ubyte),
-            ("NomTseg2", c_ubyte),
-            ("NomSJW", c_ubyte),
-            ("DatPre", c_ubyte),
-            ("DatTseg1", c_ubyte),
-            ("DatTseg2", c_ubyte),
-            ("DatSJW", c_ubyte),
-            ("Config", c_ubyte),
-            ("Model", c_ubyte),
-            ("Cantype", c_ubyte),
-        ]
-
-    class _CanFD_Msg(Structure):
-        _fields_ = [
-            ("ID", c_uint),
-            ("TimeStamp", c_uint),
-            ("FrameType", c_ubyte),
-            ("DLC", c_ubyte),
-            ("ExternFlag", c_ubyte),
-            ("RemoteFlag", c_ubyte),
-            ("BusSatus", c_ubyte),
-            ("ErrSatus", c_ubyte),
-            ("TECounter", c_ubyte),
-            ("RECounter", c_ubyte),
-            ("Data", c_ubyte * 64),
-        ]
-
-    class _LinuxLibCanBusCANFD:
-        """Linux CANFD 实现 — 厂商 libcanbus.so"""
-
-        _RECV_BUF_SIZE = 500
-        _RECV_TIMEOUT_MS = 50
-
-        def __init__(self):
-            self._load_library()
-            self._is_connected = False
-            self._device_index = 0
-            self._channel_index = 0
-            self._receive_thread: Optional[threading.Thread] = None
-            self._receive_stop_event = threading.Event()
-            self._receive_callback: Optional[Callable] = None
-
-        def _load_library(self):
-            try:
-                CDLL("/usr/local/lib/libusb-1.0.so", RTLD_GLOBAL)
-                self._libcan = cdll.LoadLibrary("/usr/local/lib/libcanbus.so")
-            except Exception as exc:
-                raise CANFDException(f"加载 CANFD 动态库失败: {exc}")
-            self._bind_libcanbus_symbols()
-
-        def _bind_libcanbus_symbols(self) -> None:
-            """Bind Linux libcanbus.so ABI (matches CANFDMaster.cpp)."""
-            lib = self._libcan
-            lib.CAN_ScanDevice.argtypes = []
-            lib.CAN_ScanDevice.restype = c_int
-
-            lib.CAN_OpenDevice.argtypes = [c_int, c_int]
-            lib.CAN_OpenDevice.restype = c_int
-
-            lib.CAN_CloseDevice.argtypes = [c_int, c_int]
-            lib.CAN_CloseDevice.restype = c_int
-
-            lib.CANFD_Init.argtypes = [c_int, c_int, POINTER(_CanFD_Config)]
-            lib.CANFD_Init.restype = c_int
-
-            lib.CANFD_Transmit.argtypes = [
-                c_int, c_int, POINTER(_CanFD_Msg), c_int, c_int]
-            lib.CANFD_Transmit.restype = c_int
-
-            lib.CANFD_Receive.argtypes = [
-                c_int, c_int, POINTER(_CanFD_Msg), c_int, c_int]
-            lib.CANFD_Receive.restype = c_int
-
-        def scan(self) -> int:
-            try:
-                ret = self._libcan.CAN_ScanDevice()
-                if ret < 0:
-                    raise CANFDException(f"扫描设备失败，错误码: {ret}")
-                return ret
-            except Exception as exc:
-                raise CANFDException(f"扫描设备异常: {exc}")
-
-        def connect(self, device_index: int = 0, channel_index: int = 0,
-                    nom_baudrate: int = 1000000, dat_baudrate: int = 5000000,
-                    nom_sampling: int = 0, dat_sampling: int = 0) -> bool:
-            try:
-                self._device_index = device_index
-                self._channel_index = channel_index
-
-                ret = self._libcan.CAN_OpenDevice(device_index, channel_index)
-                if ret != STATUS_OK:
-                    raise CANFDException(f"打开设备失败，错误码: {ret}")
-
-                can_initconfig = _CanFD_Config()
-                can_initconfig.NomBaud = nom_baudrate
-                can_initconfig.DatBaud = dat_baudrate
-                can_initconfig.Config = 0x01 | 0x02 | 0x04
-                can_initconfig.Cantype = 1
-                can_initconfig.Model = 0
-                can_initconfig.NomPre = 2
-                can_initconfig.NomTseg1 = 31
-                can_initconfig.NomTseg2 = 8
-                can_initconfig.NomSJW = 5
-                can_initconfig.DatPre = 1
-                can_initconfig.DatTseg1 = 11
-                can_initconfig.DatTseg2 = 4
-                can_initconfig.DatSJW = 2
-
-                ret = self._libcan.CANFD_Init(
-                    device_index, channel_index, byref(can_initconfig))
-                if ret != STATUS_OK:
-                    self._libcan.CAN_CloseDevice(device_index, channel_index)
-                    raise CANFDException(f"初始化 CANFD 失败，错误码: {ret}")
-
-                self._is_connected = True
-                return True
-
-            except Exception as exc:
-                raise CANFDException(f"连接设备异常: {exc}")
-
-        def disconnect(self) -> bool:
-            try:
-                if not self._is_connected:
-                    return True
-
-                if self._receive_thread and self._receive_thread.is_alive():
-                    self._receive_stop_event.set()
-                    self._receive_thread.join(timeout=1.0)
-
-                ret = self._libcan.CAN_CloseDevice(
-                    self._device_index, self._channel_index)
-                if ret != STATUS_OK:
-                    raise CANFDException(f"关闭设备失败，错误码: {ret}")
-
-                self._is_connected = False
-                self._receive_callback = None
-                return True
-
-            except Exception as exc:
-                raise CANFDException(f"断开设备异常: {exc}")
-
-        def send(self, id: int, data: bytes, frame_type: int = 0x04,
-                 extern_flag: int = 0, remote_flag: int = 0) -> bool:
-            try:
-                if not self._is_connected:
-                    raise CANFDException("设备未连接")
-                if len(data) > 64:
-                    raise CANFDException("数据长度不能超过64字节")
-
-                send_canmsg = _CanFD_Msg()
-                send_canmsg.ID = id
-                send_canmsg.FrameType = frame_type
-                send_canmsg.DLC = _len_to_dlc(64)
-                send_canmsg.ExternFlag = extern_flag
-                send_canmsg.RemoteFlag = remote_flag
-
-                for index in range(64):
-                    send_canmsg.Data[index] = 0
-                for index, value in enumerate(data[:64]):
-                    send_canmsg.Data[index] = value
-
-                ret = self._libcan.CANFD_Transmit(
-                    self._device_index,
-                    self._channel_index,
-                    byref(send_canmsg),
-                    1,
-                    100,
-                )
-                if ret != 1:
-                    raise CANFDException(f"发送数据失败，错误码: {ret}")
-                return True
-
-            except Exception as exc:
-                raise CANFDException(f"发送数据异常: {exc}")
-
-        def set_receive_callback(self, callback: Optional[Callable[[dict], None]]) -> None:
-            self._receive_callback = callback
-            if callback and not (self._receive_thread and self._receive_thread.is_alive()):
-                if not self._is_connected:
-                    raise CANFDException("设备未连接")
-                self._receive_stop_event.clear()
-                self._receive_thread = threading.Thread(
-                    target=self._receive_loop, daemon=True)
-                self._receive_thread.start()
-
-        def _receive_loop(self) -> None:
-            try:
-                msg_array_type = _CanFD_Msg * self._RECV_BUF_SIZE
-                receive_canmsg = msg_array_type()
-
-                while not self._receive_stop_event.is_set():
-                    ret = self._libcan.CANFD_Receive(
-                        self._device_index,
-                        self._channel_index,
-                        receive_canmsg,
-                        self._RECV_BUF_SIZE,
-                        self._RECV_TIMEOUT_MS,
-                    )
-
-                    if ret > 0 and self._receive_callback:
-                        for index in range(ret):
-                            msg = receive_canmsg[index]
-                            data_len = DLC2LEN[msg.DLC] if msg.DLC < len(DLC2LEN) else 64
-                            canfd_msg = {
-                                "id":          msg.ID,
-                                "timestamp":   msg.TimeStamp,
-                                "frame_type":  msg.FrameType,
-                                "dlc":         msg.DLC,
-                                "data_len":    data_len,
-                                "extern_flag": msg.ExternFlag,
-                                "remote_flag": msg.RemoteFlag,
-                                "bus_status":  msg.BusSatus,
-                                "err_status":  msg.ErrSatus,
-                                "te_counter":  msg.TECounter,
-                                "re_counter":  msg.RECounter,
-                                "data":        bytes(msg.Data[:data_len]),
-                            }
-                            try:
-                                self._receive_callback(canfd_msg)
-                            except Exception as exc:
-                                print(f"CANFD接收回调异常: {exc}")
-                    time.sleep(0.001)
-
-            except Exception as exc:
-                print(f"CANFD接收线程异常: {exc}")
-                if self._is_connected:
-                    try:
-                        self.disconnect()
-                    except Exception:
-                        pass
-
-        @property
-        def is_connected(self) -> bool:
-            return self._is_connected
-
-        def __del__(self):
-            try:
-                if self._is_connected:
-                    self.disconnect()
-            except Exception:
-                pass
 
 
 # =============================================================================
-# CANFD 工厂：根据平台 / driver 参数返回具体实现
+# CANFD 工厂
 # =============================================================================
 
 class _AutoCANFD:
-    """默认后端选择器：优先 gsusb-canfd，不可用或无设备时回退平台原生后端。
+    """默认后端选择器：gsusb-canfd 优先，Linux 上扫不到适配器时回退 socketcan。
 
-    C++ 侧用编译期宏（LHANDPRO_USE_GSUSB_CANFD / LHANDPRO_USE_HCANBUS）二选一，
-    Python 侧改为运行期择优——无需重新构建即可兼容非 gs_usb 适配器（例如仅
-    提供 HCanbus.dll 的型号）。
-
-    回退判定发生在 scan()：只有当 gsusb 一条适配器都枚举不到（或 pyusb /
-    gsusb_canfd 缺失）时，才切换到平台原生后端重扫。
+    回退判定发生在 scan()：只有 gsusb 一条适配器都枚举不到（或 pyusb /
+    gsusb_canfd 缺失）时才切换，避免"有设备却走了另一条通路"。
     """
 
     def __init__(self):
         self._impl = None
 
-    @staticmethod
-    def _fallback_factories():
-        """平台原生后端候选（按顺序尝试，构造失败即跳过）。"""
-        if IS_WINDOWS:
-            return (_WindowsCANFD,)
-        if USE_LIBCANBUS:
-            return (_LinuxLibCanBusCANFD,)
-        return (_LinuxSocketcanCANFD,)
-
-    def _build_fallback(self):
-        for factory in self._fallback_factories():
-            try:
-                return factory()
-            except Exception:  # noqa: BLE001
-                continue
-        return None
-
     def scan(self) -> int:
-        if USE_GSUSB_CANFD:
-            gsusb = None
-            gsusb_error = None
-            try:
-                gsusb = _GsUsbCANFD()
-            except Exception as exc:  # noqa: BLE001  pyusb / gsusb_canfd 缺失
-                gsusb = None
-                gsusb_error = exc
-            if gsusb is not None:
-                try:
-                    count = gsusb.scan()
-                except Exception as exc:  # noqa: BLE001  例如 pyusb 无可用后端
-                    count = 0
-                    gsusb_error = exc
-                if count > 0:
-                    self._impl = gsusb
-                    return count
-                gsusb.disconnect()  # 未选中，及时释放，避免白占 USB 句柄
-                gsusb_error = gsusb_error or "未发现 gs_usb 适配器"
-                print(f"[CANFD] gsusb 后端未命中({gsusb_error})，回退平台原生后端")
-            else:
-                # 依赖缺失（pyusb / gsusb_canfd / libusb）时最容易误判为“没有设备”，
-                # 这里显式打印原因，避免静默回退到 Linux socketcan 后在 macOS 上得到 0。
-                print(f"[CANFD] gsusb 后端不可用: {gsusb_error}；回退平台原生后端")
+        gsusb = None
+        gsusb_error = None
+        try:
+            gsusb = _GsUsbCANFD()
+        except Exception as exc:  # noqa: BLE001  pyusb / gsusb_canfd 缺失
+            gsusb_error = exc
 
-        self._impl = self._build_fallback()
-        if self._impl is None:
-            raise CANFDException("没有可用的 CANFD 后端")
+        if gsusb is not None:
+            try:
+                count = gsusb.scan()
+            except Exception as exc:  # noqa: BLE001  例如 pyusb 无可用后端
+                count = 0
+                gsusb_error = exc
+            if count > 0:
+                self._impl = gsusb
+                return count
+            gsusb.disconnect()  # 未选中，及时释放，避免白占 USB 句柄
+            gsusb_error = gsusb_error or "未发现 gs_usb 适配器"
+
+        if IS_WINDOWS:
+            raise CANFDException(
+                f"gsusb 后端不可用({gsusb_error})；socketcan 仅在 Linux 可用")
+
+        print(f"[CANFD] gsusb 未命中({gsusb_error})，回退 socketcan 后端")
+        self._impl = _LinuxSocketcanCANFD()
         return int(self._impl.scan())
 
     def _require(self):
@@ -1135,40 +620,27 @@ class _AutoCANFD:
 def CANFD(driver: Optional[str] = None):
     """创建 CANFD 实例
 
-    driver=None（默认，推荐）: 优先 gsusb-canfd；若 pyusb / gsusb_canfd 缺失
-                              或扫不到 gs_usb 适配器，则自动回退:
-                              Windows -> HCanbus.dll
-                              Linux   -> USE_LIBCANBUS 决定 libcanbus / socketcan
+    driver=None（默认，推荐）: 先用 gsusb-canfd；pyusb / gsusb_canfd 缺失或扫不到
+                               gs_usb 适配器时，在 Linux 上回退 socketcan。
 
     driver 显式指定时强制使用该后端，不回退，失败即抛 CANFDException:
-                              "gsusb" / "hcanbus" / "socketcan" / "libcanbus"
+                              "gsusb" / "socketcan"
 
     现场调试可免改代码切换后端：设置环境变量 LHANDPRO_CANFD_DRIVER
-    （取值同 driver，例如 hcanbus），其优先级高于默认的自动择优。
+    （取值同 driver，例如 gsusb），其优先级高于默认的自动择优。
     """
     if driver is None:
         driver = os.environ.get("LHANDPRO_CANFD_DRIVER") or None
 
     if driver is None:
-        if USE_LIBCANBUS:
-            return _LinuxLibCanBusCANFD()
         return _AutoCANFD()
 
     key = str(driver).strip().lower()
     if key in ("gsusb", "gsusb-canfd", "gsusb_canfd"):
         return _GsUsbCANFD()
-    if key == "hcanbus":
-        if not IS_WINDOWS:
-            raise CANFDException("HCanbus 后端仅在 Windows 可用")
-        return _WindowsCANFD()
     if key == "socketcan":
         if IS_WINDOWS:
             raise CANFDException("socketcan 后端仅在 Linux 可用")
         return _LinuxSocketcanCANFD()
-    if key == "libcanbus":
-        if IS_WINDOWS:
-            raise CANFDException("libcanbus 后端仅在 Linux 可用")
-        return _LinuxLibCanBusCANFD()
     raise CANFDException(
-        f"未知的 CANFD driver: {driver}"
-        "（可选 gsusb / hcanbus / socketcan / libcanbus）")
+        f"未知的 CANFD driver: {driver}（可选 gsusb / socketcan）")

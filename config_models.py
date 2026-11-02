@@ -80,7 +80,7 @@ class FeatureFlags:
     main_power_cycle_rs485_ports: Optional[Tuple[str, ...]] = None
     main_power_cycle_stop_timeout: float = 5.0
     main_power_cycle_control_timeout: float = 15.0
-    # CANFD 后端：gsusb / socketcan / libcanbus / hcanbus，None 表示运行期自动择优
+    # CANFD 后端：gsusb / socketcan，None 表示运行期自动择优
     canfd_driver: Optional[str] = CANFD_DRIVER_DEFAULT
     # 日志磁盘保留上限（见 log.py）
     log_max_bytes: int = LOG_DEFAULT_MAX_BYTES

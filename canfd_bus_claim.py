@@ -1,10 +1,8 @@
-"""跨进程 CANFD 总线占用登记，为 gs_usb 后端恢复"扫描自动少一个"的行为。
+"""跨进程 CANFD 总线占用登记，为 gs_usb 后端提供"扫描自动少一个"的行为。
 
-厂商 libcanbus 独占打开设备后，后续进程的 `CAN_ScanDevice()` 不会再列出该总线，
-所以多开 main.py 时每个进程都能自动拿到一条空闲总线。gs_usb（pyusb）没有这个性质：
-`scan_adapters()` 始终列出全部适配器，而且 `CanFdBus.open()` 不 claim USB 接口，
-于是多个 main.py 会静默打开同一个适配器、两路 CAN 流量互相干扰（表现为随机的
-SDO 超时 / LER_COMM_RECV(7)）。
+gs_usb（pyusb）没有设备独占语义：`scan_adapters()` 始终列出全部适配器，而且
+`CanFdBus.open()` 不 claim USB 接口，于是多个 main.py 会静默打开同一个适配器、
+两路 CAN 流量互相干扰（表现为随机的 SDO 超时 / LER_COMM_RECV(7)）。
 
 本模块用 `runtime/canfd_claims/<适配器标识>.claim` 做应用层占用登记：
 
@@ -14,7 +12,7 @@ SDO 超时 / LER_COMM_RECV(7)）。
 - 进程被 SIGKILL 或掉电后占位文件仍在，但持有者 pid 已不存活，会被自动回收；
 - 并发启动时用 `try_acquire()` 原子抢占，抢不到就顺延到下一个候选，不会静默共用。
 
-只作用于 gs_usb 后端；libcanbus / socketcan 后端保持 SDK 原行为。
+只作用于 gs_usb 后端；socketcan 后端由内核驱动负责设备独占。
 """
 
 import json
@@ -356,8 +354,8 @@ def create_canfd(driver=None):
     """创建 CANFD 实例；gs_usb 后端会带上跨进程总线占用登记。
 
     `driver=None`（运行期自动择优）时维持 SDK 行为，不做包装——自动择优可能落到
-    socketcan / libcanbus 后端，那两条路径由各自驱动负责独占。需要多实例保护时
-    应显式固定 `canfd_driver: "gsusb"`（preset 默认值即是）。
+    socketcan 后端，该路径由内核驱动负责独占。需要多实例保护时应显式固定
+    `canfd_driver: "gsusb"`（preset 默认值即是）。
     """
     key = driver
     if key is None:

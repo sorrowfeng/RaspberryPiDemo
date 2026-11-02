@@ -2,7 +2,7 @@
 
 LHandPro 在 Raspberry Pi 场景下的 Python 控制示例，支持 `CANFD`、`ECAT`、`RS485` 三种通讯方式，并包含循环运动、抓握动作、GPIO 触发和手套 UDP 输入。
 
-CANFD 默认使用 **gs_usb 用户态实现**（pyusb + 随项目的 `gsusb_canfd`），不再依赖厂商 `libcanbus`；后端可在 preset 的 `features.canfd_driver` 中切换。多开 `main.py` 时通过 `runtime/canfd_claims/` 的跨进程占用登记分配总线，`scan()` 只返回空闲总线，与旧 `libcanbus` 的行为一致。
+CANFD 默认使用 **gs_usb 用户态实现**（pyusb + 随项目的 `gsusb_canfd`），Linux 上可切换到 `socketcan` 后端；后端可在 preset 的 `features.canfd_driver` 中切换。多开 `main.py` 时通过 `runtime/canfd_claims/` 的跨进程占用登记分配总线，`scan()` 只返回空闲总线。
 
 ## 目录结构
 

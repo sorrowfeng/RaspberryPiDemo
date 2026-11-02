@@ -9,6 +9,7 @@ LHandProLib的Python面向对象封装
 """
 
 import ctypes
+import logging
 from typing import Optional, List, Tuple, Callable
 from ctypes import (
     c_int, c_uint, c_ubyte, c_float, c_bool, c_char, c_char_p, c_void_p,
@@ -29,9 +30,12 @@ from lhandprolib_loader import (
     LSS_FINGER_3_1, LSS_FINGER_3_2, LSS_FINGER_4_1, LSS_FINGER_4_2,
     LSS_FINGER_5_1, LSS_FINGER_5_2, LSS_HAND_PALM, LSS_MAX_COUNT,
     LDR_HAND_RIGHT, LDR_HAND_LEFT,
-    LogAddCallbackWrapper, ECSendDataCallbackWrapper, CANFDSendDataCallbackWrapper,
+    LogAddCallbackWrapper, ECSendDataCallbackWrapper, ECATSdoCallbackWrapper,
+    CANFDSendDataCallbackWrapper,
     RS485SendDataCallbackWrapper, CANSendDataCallbackWrapper,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class LHandProLibError(Exception):
@@ -207,6 +211,37 @@ class PyLHandProLib:
         wrapped_callback = ECSendDataCallbackWrapper(wrapper)
         self._callbacks['send_rpdo'] = wrapped_callback
         self._lib.lhandprolib_set_send_rpdo_callback(self._handle, wrapped_callback)
+
+    def set_ecat_sdo_callback(
+        self, callback: Callable[[int, int, bool, int], Optional[int]]
+    ) -> None:
+        """设置 EtherCAT SDO 传输回调（CoE 邮箱由用户主站执行）。
+
+        callback(index, subindex, is_write, value) -> Optional[int]
+          - is_write=True: 返回 True/False 表示写成功与否；
+          - is_write=False: 返回读到的 32 位无符号整数，返回 None 表示失败。
+
+        必须在 initial(LCN_ECAT) 之前注册，且主站已完成 run()。
+        """
+
+        def wrapper(index, subindex, is_write, value, out_value):
+            try:
+                if is_write:
+                    return bool(callback(index, subindex, True, value))
+                result = callback(index, subindex, False, value)
+                if result is None:
+                    return False
+                out_value[0] = int(result) & 0xFFFFFFFF
+                return True
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("EtherCAT SDO 回调异常: %s", exc)
+                return False
+
+        wrapped_callback = ECATSdoCallbackWrapper(wrapper)
+        self._callbacks['ecat_sdo'] = wrapped_callback
+        self._require("lhandprolib_set_ecat_sdo_callback")(
+            self._handle, wrapped_callback
+        )
 
     def set_send_canfd_callback(self, callback: Callable[[int, bytes], bool]) -> None:
         """设置发送CANFD回调

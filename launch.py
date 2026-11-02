@@ -142,7 +142,7 @@ def main() -> int:
         ACTIVE_PRESET,
         communication_mode,
         launch_count,
-        FEATURE_FLAGS["enable_main_power_cycle"],
+        FEATURE_FLAGS.get("enable_main_power_cycle", False),
     )
     if CONFIG_LOAD_ERROR is not None:
         logger.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
@@ -150,7 +150,7 @@ def main() -> int:
     python_cmd = build_python_cmd()
     logger.debug("python command: %s", python_cmd)
 
-    if FEATURE_FLAGS["enable_main_power_cycle"]:
+    if FEATURE_FLAGS.get("enable_main_power_cycle", False):
         try:
             return _run_main_power_cycle(python_cmd, communication_mode, launch_count)
         except Exception as exc:

@@ -98,6 +98,11 @@ LDR_HAND_LEFT = 1
 # 回调函数类型定义（与 LHandProLib.h 中的 typedef 一一对应）
 LogAddCallbackWrapper = ctypes.CFUNCTYPE(None, c_char_p)
 ECSendDataCallbackWrapper = ctypes.CFUNCTYPE(c_bool, POINTER(c_char), c_uint)
+# EtherCAT SDO 传输回调：bool(unsigned int index, unsigned char subindex,
+#                            int is_write, unsigned int value, unsigned int* out_value)
+ECATSdoCallbackWrapper = ctypes.CFUNCTYPE(
+    c_bool, c_uint, c_ubyte, c_int, c_uint, POINTER(c_uint)
+)
 # CANFD 发送回调：bool(unsigned int id, const unsigned char* data,
 #                      unsigned int size, int is_extended)
 CANFDSendDataCallbackWrapper = ctypes.CFUNCTYPE(
@@ -151,6 +156,8 @@ class LHandProLibLoader:
         # ---------- 回调设置 ----------
         ("lhandprolib_set_send_rpdo_callback",
          None, [c_void_p, ECSendDataCallbackWrapper]),
+        ("lhandprolib_set_ecat_sdo_callback",
+         None, [c_void_p, ECATSdoCallbackWrapper]),
         ("lhandprolib_set_send_canfd_callback",
          None, [c_void_p, CANFDSendDataCallbackWrapper]),
         ("lhandprolib_set_log_callback", None, [c_void_p, LogAddCallbackWrapper]),
