@@ -38,12 +38,23 @@ class MotionController:
         device_index: int = None,
         enable_gpio: bool = True,
         rs485_port_name: str = None,
+        *,
+        ec_master=None,
+        ecat_slave_id=None,
+        gpio=None,
+        owns_gpio: bool = True,
+        cycle_complete_index: int = None,
     ):
         self.session = DeviceSession(
             communication_mode=communication_mode,
             device_index=device_index,
             enable_gpio=enable_gpio,
             rs485_port_name=rs485_port_name,
+            ec_master=ec_master,
+            ecat_slave_id=ecat_slave_id,
+            gpio=gpio,
+            owns_gpio=owns_gpio,
+            cycle_complete_index=cycle_complete_index,
         )
         self.runtime_state = MotionRuntimeState()
         self.cycle_manager = CycleMotionManager(self.session, self.runtime_state)
@@ -296,7 +307,7 @@ class MotionController:
             self.session.enable_gpio = False
         self._log_gpio_summary(managed_control=managed_control)
 
-    def _auto_connect_once(self) -> bool:
+    def _auto_connect_once(self, *, start_cycle: bool = True) -> bool:
         logging.info("正在尝试自动连接设备...")
         if not self.session.connect():
             logging.error("设备自动连接失败")
@@ -305,7 +316,7 @@ class MotionController:
 
         logging.info("设备自动连接成功")
         self.session.set_connected_status()
-        if FEATURE_FLAGS["auto_cycle_running"]:
+        if start_cycle and FEATURE_FLAGS["auto_cycle_running"]:
             logging.info("自动开始执行循环运动")
             self.on_start_motion()
         return True

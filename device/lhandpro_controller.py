@@ -48,13 +48,24 @@ class LHandProController(
 
     ECAT_STARTUP_DEADLINE_MARGIN_SECONDS = 0.5
 
-    def __init__(self, communication_mode: str):
+    def __init__(
+        self,
+        communication_mode: str,
+        *,
+        ec_master=None,
+        ecat_slave_id=None,
+    ):
         """初始化控制器
 
         Args:
             communication_mode: 通信模式，可选值为 "CANFD"、"ECAT" 或 "RS485"
+            ec_master: 可选的共享 EtherCAT 主站；多手模式由外层统一创建
+            ecat_slave_id: ECAT 从站编号（1-based），None 时默认 1
         """
         self.lhp: Optional[PyLHandProLib] = None
+        self._shared_ec_master = ec_master
+        self.ecat_slave_id = ecat_slave_id
+        self._owns_ec_master = ec_master is None
 
         # 通讯后端类（按模式延迟导入）
         self._canfd_cls = None
@@ -280,11 +291,14 @@ class LHandProController(
             with self._ecat_callback_lock:
                 ec_master = self.ec_master
                 if ec_master:
-                    ec_master.stop()
-                    time.sleep(0.1)
+                    if getattr(self, "_owns_ec_master", True):
+                        ec_master.stop()
+                        time.sleep(0.1)
+                        logger.info("EtherCAT 主站通信资源已释放")
+                    else:
+                        logger.info("EtherCAT 共享主站保留，仅释放当前手资源")
                     if self.ec_master is ec_master:
                         self.ec_master = None
-                    logger.info("EtherCAT 主站通信资源已释放")
         elif self.communication_mode == "RS485" and self.serial_port:
             # 先等待正在执行的收发回调结束；is_connected=False 会阻止新回调进入实际通信。
             with self._rs485_callback_lock:

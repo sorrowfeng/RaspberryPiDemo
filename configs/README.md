@@ -11,16 +11,18 @@ Each preset file now contains:
 
 - communication mode and launch count
 - device type / node id / RS485 port
+- ECAT 多从站（可选）：`device.ecat_slave_ids`，1-based 列表；
+  省略或 `None` 表示自动使用主站扫描到的全部从站
 - home time / cycle count / finish position
 - which sequence files should be used for cycle / grasp repeat / hold grip / hold release
 - feature flags
 - CANFD transport backend in `features` (optional): `canfd_driver`, one of
   `gsusb` / `socketcan`, or `None` for runtime auto-selection;
   omitted keys fall back to `DEFAULT_CANFD_DRIVER` in
-  [config_support.py](/D:/Project/PyProject/RaspberryPiDemo/config_support.py)
+  [app/config_support.py](../app/config_support.py)
 - log retention limits in `features` (optional): `log_max_bytes`, `log_backup_count`,
   `log_max_sessions`, `log_max_total_bytes`; omitted keys fall back to the defaults in
-  [log.py](/D:/Project/PyProject/RaspberryPiDemo/log.py)
+  [app/log.py](../app/log.py)
 
 Preset files no longer embed long motion arrays directly. Those sequences now live in [sequences](../sequences).
 

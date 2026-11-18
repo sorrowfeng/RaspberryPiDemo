@@ -15,19 +15,38 @@ class DeviceSession:
         device_index: int = None,
         enable_gpio: bool = True,
         rs485_port_name: str = None,
+        *,
+        ec_master=None,
+        ecat_slave_id=None,
+        gpio=None,
+        owns_gpio: bool = True,
+        cycle_complete_index: int = None,
     ):
-        self.controller = LHandProController(communication_mode=communication_mode)
+        self.controller = LHandProController(
+            communication_mode=communication_mode,
+            ec_master=ec_master,
+            ecat_slave_id=ecat_slave_id,
+        )
         self.device_index = device_index
         self.rs485_port_name = (
             rs485_port_name
             if rs485_port_name is not None
             else DEVICE_CONFIG["rs485_port_name"]
         )
-        self.gpio = None
+        self.gpio = gpio
+        self._owns_gpio = owns_gpio
         self.enable_gpio = self._initialize_gpio(enable_gpio)
-        self.cycle_complete_pin = self._select_cycle_complete_pin(device_index)
+        pin_index = (
+            cycle_complete_index
+            if cycle_complete_index is not None
+            else device_index
+        )
+        self.cycle_complete_pin = self._select_cycle_complete_pin(pin_index)
 
     def _initialize_gpio(self, enable_gpio: bool) -> bool:
+        if self.gpio is not None:
+            return True
+
         if enable_gpio and not GPIO_AVAILABLE:
             logging.warning("RPi.GPIO 未安装，GPIO 功能已自动禁用")
             return False
@@ -44,9 +63,17 @@ class DeviceSession:
 
     @staticmethod
     def _select_cycle_complete_pin(device_index: int):
-        if device_index in [0, None]:
-            return GPIO_PINS.CYCLE_COMPLETE[0]
-        return GPIO_PINS.CYCLE_COMPLETE[device_index]
+        pins = GPIO_PINS.CYCLE_COMPLETE
+        if device_index is None:
+            return pins[0]
+        if 0 <= int(device_index) < len(pins):
+            return pins[int(device_index)]
+        logging.warning(
+            "循环完成 GPIO 索引超出范围: index=%s, pins=%s，复用最后一个引脚",
+            device_index,
+            pins,
+        )
+        return pins[-1]
 
     def connect(
         self,
@@ -117,5 +144,5 @@ class DeviceSession:
             self.gpio.output_pulse(self.cycle_complete_pin, duration=0.5)
 
     def cleanup_gpio(self):
-        if self.enable_gpio and self.gpio:
+        if self._owns_gpio and self.enable_gpio and self.gpio:
             self.gpio.cleanup()

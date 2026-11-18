@@ -43,6 +43,41 @@
   - 被 `launch.py` 和 `power_cycle/main.py` 共同使用。
   - 负责构造 Python 命令、RS485 前置准备、启动/停止多个 `main.py` 进程。
 
+## EtherCAT 多从站（方案 A）
+
+ECAT 与 CANFD 不同：一块 EtherCAT 网卡只能由一个 SOEM 主站独占，因此**不能**为每个
+从站各起一个 `main.py`。当前实现是：
+
+```text
+launch.py（ECAT 强制 launch_count=1）
+  └─ main.py --communication-mode=ECAT
+       └─ EcatMultiHandController
+            ├─ 一个 EthercatMaster
+            ├─ 每只手一个 MotionController / LHandProLib 实例
+            └─ 每只手绑定自己的 slave_id、RPDO/TPDO/SDO 回调
+```
+
+关键点：
+
+- `device.ecat_slave_ids`（1-based）省略/`None` 时自动使用扫描到的全部从站；
+- 每个 SDK 实例的发送回调走 `setSlaveOutputs(slave_id, ...)`；
+- 每个 SDK 实例的接收线程走 `getSlaveInputs(slave_id, ...)`；
+- 每个 SDK 实例注册独立的 `set_ecat_sdo_callback`，SDO 按 `slave_id` 路由；
+- GPIO 开始/停止/连接/断开/抓握会 fan-out 到全部从站；
+- 正常自动模式先连接/回零全部从站，再统一开始循环；托管 `start_cycle` 逐个从站连接/回零并启动；
+- 手套监听目前只跟随第一只手（UDP 只有一个接收端口）。
+
+配置示例：
+
+```python
+"device": {
+    "current_hand_type": "LAC_DOF_6_S",
+    "ecat_slave_ids": [1, 2],
+}
+```
+
+不配置时自动控制全部从站。从站编号是 SOEM 拓扑顺序，接线变化会导致编号变化。
+
 ## 配置体系
 
 配置入口是 `app/config.py`，运行时代码应优先从这里读取配置，不要直接读取具体 preset。
@@ -67,7 +102,9 @@
 - `configs.config_DH116S_ECAT_power_cycle_test`
 - `configs.config_DH116S_RS485_power_cycle_test`
 
-其中 ECAT preset 的 `default_launch_count=1`，单个长驻 `main.py` 会自动选择唯一可用网口；CANFD 和 RS485 preset 的 `default_launch_count=4`。
+其中 ECAT preset 的 `default_launch_count=1`：单个长驻 `main.py` 会创建一个 EtherCAT
+主站，并默认控制扫描到的全部从站（可用 `device.ecat_slave_ids` 限定）；CANFD 和
+RS485 preset 的 `default_launch_count=4`。
 
 这三个 preset 都启用：
 

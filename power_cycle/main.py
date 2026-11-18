@@ -927,6 +927,11 @@ def main() -> int:
     # 配置/序列均为相对导入，固定到工程根目录，避免 systemd 工作目录不同。
     os.chdir(BASE_DIR)
     args = parse_args()
+    forced_ecat_count = (
+        args.communication_mode == "ECAT" and args.launch_count != 1
+    )
+    if forced_ecat_count:
+        args.launch_count = 1
     setup_logging(
         app_name="main_power_cycle",
         communication_mode=args.communication_mode,
@@ -934,6 +939,10 @@ def main() -> int:
         **LOG_RETENTION_CONFIG,
     )
     install_signal_handlers()
+    if forced_ecat_count:
+        logger.warning(
+            "EtherCAT 由单个主站进程控制多个从站，launch_count 已强制为 1"
+        )
     logger.info(
         "power_cycle/main.py 启动参数: preset=%s, communication_mode=%s, "
         "launch_count=%s, port=%s, baud_rate=%s, rs485_ports=%s",

@@ -130,11 +130,15 @@ sudo python3 main.py -m RS485
 ```bash
 sudo python3 launch.py
 sudo python3 launch.py -m CANFD -n 4
-sudo python3 launch.py -m ECAT -n 1
+sudo python3 launch.py -m ECAT
 sudo python3 launch.py -m RS485 -n 4
 ```
 
 `launch.py` 会读取 [app/config.py](app/config.py) 导出的默认值，也支持命令行覆盖。
+
+ECAT 例外：**始终只启动 1 个主站进程**，进程内默认控制扫描到的全部从站；
+`-n` 对 ECAT 会被忽略。可用 preset 的 `device.ecat_slave_ids`（1-based）限定从站，
+例如 `[1, 2]`。
 
 ## 辅助脚本
 

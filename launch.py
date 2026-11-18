@@ -136,6 +136,13 @@ def main() -> int:
         device_index="all",
         **LOG_RETENTION_CONFIG,
     )
+    if communication_mode == "ECAT" and launch_count != 1:
+        logger.warning(
+            "EtherCAT 由单个主站进程控制多个从站，忽略 launch_count=%s，强制为 1",
+            launch_count,
+        )
+        launch_count = 1
+
     logger.info(
         "launch.py 启动参数: preset=%s, communication_mode=%s, launch_count=%s, "
         "enable_main_power_cycle=%s",

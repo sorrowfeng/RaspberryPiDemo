@@ -8,7 +8,12 @@ import os
 import sys
 
 from active_config import ACTIVE_PRESET
-from app.config import COMMUNICATION_CONFIG, CONFIG_LOAD_ERROR, LOG_RETENTION_CONFIG
+from app.config import (
+    COMMUNICATION_CONFIG,
+    CONFIG_LOAD_ERROR,
+    ECAT_SLAVE_IDS,
+    LOG_RETENTION_CONFIG,
+)
 from app.log import setup_logging
 from app.runtime_control import (
     DEFAULT_CONTROL_TIMEOUT,
@@ -180,23 +185,34 @@ def main():
     )
     logging.info(
         "main.py 启动参数: preset=%s, communication_mode=%s, device_index=%s, "
-        "rs485_port=%s, enable_gpio=%s, managed_control=%s",
+        "rs485_port=%s, enable_gpio=%s, managed_control=%s, ecat_slave_ids=%s",
         ACTIVE_PRESET,
         args.communication_mode,
         args.device_index,
         args.rs485_port,
         args.enable_gpio,
         args.managed_control,
+        ECAT_SLAVE_IDS,
     )
     if CONFIG_LOAD_ERROR is not None:
         logging.warning("配置加载失败，已回退到默认配置: %s", CONFIG_LOAD_ERROR)
     pid_path = register_runtime_pid(args.communication_mode, args.device_index)
-    motion_ctrl = MotionController(
-        communication_mode=args.communication_mode,
-        device_index=args.device_index,
-        enable_gpio=args.enable_gpio,
-        rs485_port_name=args.rs485_port,
-    )
+    if args.communication_mode == "ECAT":
+        # ECAT 只有一个主站进程；进程内按从站创建多个 hand。
+        from motion_system.ecat_multi_controller import EcatMultiHandController
+
+        motion_ctrl = EcatMultiHandController(
+            device_index=args.device_index,
+            enable_gpio=args.enable_gpio,
+            ecat_slave_ids=ECAT_SLAVE_IDS,
+        )
+    else:
+        motion_ctrl = MotionController(
+            communication_mode=args.communication_mode,
+            device_index=args.device_index,
+            enable_gpio=args.enable_gpio,
+            rs485_port_name=args.rs485_port,
+        )
     install_signal_handlers(motion_ctrl)
     try:
         return motion_ctrl.run(managed_control=args.managed_control)

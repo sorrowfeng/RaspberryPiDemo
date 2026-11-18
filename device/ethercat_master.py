@@ -26,6 +26,10 @@ class EthercatMaster:
         self.thread = None
         self.ifname = None
         self._master_opened = False
+        self._initialized = False
+        self._started = False
+        # 串行化 SOEM 调用：processdata 线程、SDO 和按从站 PDO 访问共享同一个主站。
+        self._io_lock = threading.RLock()
 
     def scanNetworkInterfaces(self) -> List[str]:
         """扫描可用网口，过滤虚拟/无线/回环接口，返回物理网卡设备名列表"""
@@ -301,6 +305,7 @@ class EthercatMaster:
                 slave.output = bytes(len(slave.output))
 
             initialized = True
+            self._initialized = True
             return True
 
         except Exception as e:
@@ -372,12 +377,15 @@ class EthercatMaster:
         self.output_size = 0
         self.ifname = None
         self.master = None
+        self._initialized = False
+        self._started = False
 
     def run(self):
         """启动后台 IO 线程"""
         if self.running and self.thread and self.thread.is_alive():
             return
         self.running = True
+        self._started = True
         self.thread = threading.Thread(
             target=self._process_io,
             name="EtherCAT-PDO",
@@ -389,8 +397,9 @@ class EthercatMaster:
         """IO 处理循环"""
         try:
             while self.running:
-                self.master.send_processdata()
-                self.master.receive_processdata(1000)  # 1ms 超时
+                with self._io_lock:
+                    self.master.send_processdata()
+                    self.master.receive_processdata(1000)  # 1ms 超时
                 time.sleep(0.001)  # 1ms
         except Exception as e:
             if self.running:
@@ -440,6 +449,139 @@ class EthercatMaster:
             slave_in_len = len(slave.input)
             inputs.extend(slave.input[:slave_in_len])
         return bytes(inputs)
+
+    # ------------------------------------------------------------------
+    # 按从站访问（多从站模式）
+    # ------------------------------------------------------------------
+    def isConnected(self) -> bool:
+        """主站是否处于运行状态。"""
+        return bool(self.running and self._master_opened and self.master is not None)
+
+    def getSlaveCount(self) -> int:
+        return len(self.slaves)
+
+    def getSlaveInfoList(self) -> list:
+        """返回 1-based 从站信息，供多手模式选择/日志使用。"""
+        info_list = []
+        for index, slave in enumerate(self.slaves, start=1):
+            name = slave.name
+            if isinstance(name, bytes):
+                name = name.decode("utf-8", errors="ignore")
+            info_list.append(
+                {
+                    "index": index,
+                    "name": str(name),
+                    "vendor_id": int(getattr(slave, "man", 0)),
+                    "product_id": int(getattr(slave, "id", 0)),
+                }
+            )
+        return info_list
+
+    def _find_slave(self, slave_id: int):
+        if slave_id < 1 or slave_id > len(self.slaves):
+            return None
+        return self.slaves[slave_id - 1]
+
+    def getSlaveOutputSize(self, slave_id: int) -> int:
+        slave = self._find_slave(slave_id)
+        return len(slave.output) if slave is not None else 0
+
+    def getSlaveInputSize(self, slave_id: int) -> int:
+        slave = self._find_slave(slave_id)
+        return len(slave.input) if slave is not None else 0
+
+    def setSlaveOutputs(self, slave_id: int, data: bytes, size: int) -> bool:
+        """写入单个从站的 RPDO 输出缓冲区。"""
+        slave = self._find_slave(slave_id)
+        if slave is None:
+            logger.error("EtherCAT 从站不存在: slave_id=%s", slave_id)
+            return False
+        expected = len(slave.output)
+        if size <= 0 or size > expected:
+            logger.error(
+                "EtherCAT 从站输出长度不匹配: slave_id=%s, expected=%s, actual=%s",
+                slave_id,
+                expected,
+                size,
+            )
+            return False
+        try:
+            payload = bytes(data[:size])
+            # 保持 PDO 总长度不变，未写入的部分沿用上一次输出。
+            buffer = bytearray(slave.output)
+            buffer[:size] = payload
+        except (TypeError, ValueError) as exc:
+            logger.error("EtherCAT 从站输出数据无效: slave_id=%s, error=%s", slave_id, exc)
+            return False
+        with self._io_lock:
+            slave.output = bytes(buffer)
+        return True
+
+    def getSlaveInputs(self, slave_id: int, size: int) -> Optional[bytes]:
+        """读取单个从站的 TPDO 输入缓冲区。"""
+        slave = self._find_slave(slave_id)
+        if slave is None:
+            return None
+        available = len(slave.input)
+        if size <= 0 or size > available:
+            logger.error(
+                "EtherCAT 从站输入长度无效: slave_id=%s, available=%s, requested=%s",
+                slave_id,
+                available,
+                size,
+            )
+            return None
+        with self._io_lock:
+            return bytes(slave.input[:size])
+
+    def sdoRead(self, index: int, subindex: int, slave_id: int = 1) -> Optional[int]:
+        """通过 CoE 邮箱读取单个从站的 32 位对象。"""
+        slave = self._find_slave(slave_id)
+        if slave is None or not self._initialized:
+            return None
+        try:
+            with self._io_lock:
+                data = bytes(slave.sdo_read(index, subindex, size=4))
+        except Exception as exc:
+            logger.debug(
+                "EtherCAT SDO 读失败: slave=%s, index=0x%04X, subindex=0x%02X, error=%s",
+                slave_id,
+                index,
+                subindex,
+                exc,
+            )
+            return None
+        if len(data) < 4:
+            return None
+        return int.from_bytes(data[:4], byteorder="little", signed=False)
+
+    def sdoWrite(
+        self,
+        index: int,
+        subindex: int,
+        value: int,
+        slave_id: int = 1,
+    ) -> bool:
+        """通过 CoE 邮箱写入单个从站的 32 位对象。"""
+        slave = self._find_slave(slave_id)
+        if slave is None or not self._initialized:
+            return False
+        if value < 0 or value > 0xFFFFFFFF:
+            return False
+        try:
+            data = int(value).to_bytes(4, byteorder="little", signed=False)
+            with self._io_lock:
+                slave.sdo_write(index, subindex, data)
+        except Exception as exc:
+            logger.debug(
+                "EtherCAT SDO 写失败: slave=%s, index=0x%04X, subindex=0x%02X, error=%s",
+                slave_id,
+                index,
+                subindex,
+                exc,
+            )
+            return False
+        return True
 
     def getInputSize(self) -> int:
         return self.input_size

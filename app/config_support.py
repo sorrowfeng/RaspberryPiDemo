@@ -174,6 +174,9 @@ def build_runtime_configuration(
     communication_config = deepcopy(preset["communication"])
     device_config = deepcopy(preset["device"])
     device_config["current_hand_type"] = HAND_TYPE_MAP[hand_type_name]
+    # ECAT 多从站配置：None/省略表示自动使用主站扫描到的全部从站；
+    # 显式列表（1-based）表示只控制这些从站。
+    device_config.setdefault("ecat_slave_ids", None)
 
     axis_count = len(preset["motion"]["cycle_finish_position"])
     cycle_sequence = normalize_sequence(
@@ -255,6 +258,7 @@ def export_legacy_config(
             "DEFAULT_LAUNCH_COUNT": communication_config["default_launch_count"],
             "CURRENT_HAND_TYPE": device_config["current_hand_type"],
             "CANFD_NODE_ID": device_config["canfd_node_id"],
+            "ECAT_SLAVE_IDS": device_config.get("ecat_slave_ids"),
             "RS485_PORT_NAME": device_config["rs485_port_name"],
             "CANFD_DRIVER": feature_flags.get("canfd_driver", DEFAULT_CANFD_DRIVER),
             "DEFAULT_HOME_TIME": motion_config["default_home_time"],
